@@ -1,13 +1,14 @@
-example seconds (engine start + run) 24.284 | pyodide MB downloaded 35.8
-log: Starting | Random k-fold: fold 1 of 5 | Random k-fold: fold 2 of 5 | Random k-fold: fold 3 of 5 | Random k-fold: fold 4 of 5 | Random k-fold: fold 5 of 5 | Spatial block k-fold: fold 1 of 5 | Spatial block k-fold: fold 2 of 5 | Spatial block k-fold: fold 3 of 5 | Spatial block k-fold: fold 4 of 5 | Spatial block k-fold: fold 5 of 5 | Done in 12.0 s
-gap: Accuracy is 93.2% when test points are mixed in at random (median 158 m from the nearest training point) and 88.8% when whole 10 km blocks are held out (median 3.1 km): 4.4 percentage points lower.
+example seconds (engine start + run) 23.881 | pyodide MB downloaded 35.8
+log: Starting | Random k-fold: fold 1 of 5 | Random k-fold: fold 2 of 5 | Random k-fold: fold 3 of 5 | Random k-fold: fold 4 of 5 | Random k-fold: fold 5 of 5 | Spatial block k-fold: fold 1 of 5 | Spatial block k-fold: fold 2 of 5 | Spatial block k-fold: fold 3 of 5 | Spatial block k-fold: fold 4 of 5 | Spatial block k-fold: fold 5 of 5 | Done in 11.6 s
+gap: Accuracy is 93.2% with random test points (median 158 m from the nearest training point) and 88.8% with whole 10 km blocks held out (median 3.1 km): 4.4 percentage points lower. One seed; the folds also differ in class mix, so read the gap as an indication, not a precise estimate.
 kpis: 93.2%overall accuracy / 0.932macro F1 / 0.915Cohen's kappa / ±1.1%fold spread (SD) / 158 mtest to training (median) / 0.932weighted F1 || 88.8%overall accuracy / 0.888macro F1 / 0.861Cohen's kappa / ±7.2%fold spread (SD) / 3.1 kmtest to training (median) / 0.888weighted F1
-preview at 2 km : 1253 occupied blocks; fold sizes 1000, 1000, 1000, 1000, 1000.
-export eval 3044 bytes tests/out/geovalidate_sample_mau_forest_evaluation.csv
-export folds 382274 bytes tests/out/geovalidate_sample_mau_forest_folds.csv
-export geojson 1359945 bytes tests/out/geovalidate_sample_mau_forest_folds.geojson
-export png 45916 bytes tests/out/geovalidate_sample_mau_forest_charts.png
-export config 3219 bytes tests/out/geovalidate_sample_mau_forest_config.json
+figures: 93.2%random folds accuracy || 88.8%10 km blocks accuracy || −4.4points with spatial blocks || 158 m / 3.1 kmtest to training, median
+preview at 2 km : 1253 occupied blocks; fold sizes 1000, 1000, 1000, 1000, 1000. Settings changed since the result shown; run again to update it.
+export eval 3041 bytes /home/user/GeoValidate/tests/out/geovalidate_sample_mau_forest_evaluation.csv
+export folds 382274 bytes /home/user/GeoValidate/tests/out/geovalidate_sample_mau_forest_folds.csv
+export geojson 1359958 bytes /home/user/GeoValidate/tests/out/geovalidate_sample_mau_forest_folds.geojson
+export png 46845 bytes /home/user/GeoValidate/tests/out/geovalidate_sample_mau_forest_charts.png
+export config 3217 bytes /home/user/GeoValidate/tests/out/geovalidate_sample_mau_forest_config.json
 invalid file message: “not-data.txt” is not a CSV or GeoJSON file.
 empty CSV message: The file has no rows
 horizontal overflow at 390 px: 0

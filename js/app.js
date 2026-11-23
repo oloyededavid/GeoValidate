@@ -22,9 +22,11 @@ const log = $('log');
 const line = (msg, cls = '') => { log.querySelectorAll('li.now').forEach(l => l.classList.remove('now')); const li = document.createElement('li'); li.textContent = msg; if (cls) li.className = cls; log.append(li); };
 
 // ---------------------------------------------------------------- map
-const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', center: [0, 15], zoom: 1.3, attributionControl: { compact: true }, preserveDrawingBuffer: true });
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', center: [0, 15], zoom: 1.3, attributionControl: false, preserveDrawingBuffer: true });
+// bottom-left: the results drawer covers the bottom-right corner
+map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
 const mapReady = new Promise(r => map.on('load', r));
 mapReady.then(() => {
   map.addSource('blocks', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -74,10 +76,13 @@ async function load(text, name, kind) {
     log.querySelectorAll('li.now').forEach(l => l.classList.remove('now'));
     Object.assign(S, { text, name, kind, meta, result: null, preview: null, view: 'folds' }); $('results').hidden = true;
     document.querySelector('[data-view="errors"]').disabled = true;
-    document.querySelectorAll('[data-view]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.view === 'folds')));
+    document.querySelectorAll('[data-view]').forEach(x => { x.checked = x.dataset.view === 'folds'; });
+    $('views').hidden = false; $('exports').hidden = true; $('log-box').hidden = true; $('r-title').textContent = 'Validation design';
     info(`<strong>${esc(name)}</strong> · ${meta.rows.toLocaleString('en-GB')} rows · ${meta.columns.length} columns · SHA-256 ${meta.sha256.slice(0, 12)}…`);
     await fillColumns(meta);
+    if (step === 0) go(1);
   } catch (e) { info(e.message, true); }
+  updateNext();
 }
 function fillColumns(meta) {
   const opts = (sel, pick) => { sel.innerHTML = meta.columns.map(c => `<option${c === pick ? ' selected' : ''}>${esc(c)}</option>`).join(''); };
@@ -130,27 +135,25 @@ async function preview() {
   try {
     const p = await ask('preview', { cfg: cfg() });
     if (mine !== previewSeq) return;
-    S.preview = p; S.previewOk = true; $('run').disabled = false;
+    S.preview = p; S.previewOk = true; $('run').disabled = false; updateNext();
     // a result computed with other settings is kept, but marked as out of date, and the map shows the new folds
     S.stale = !!S.result && JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => S.result.config[k])) !== JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => cfg()[k]));
     const empty = p.fold_class_counts.map((c, f) => Object.entries(c).filter(([, n]) => n === 0).map(([k]) => k)).map((e, f) => e.length ? `fold ${f + 1} lacks ${e.join(', ')}` : '').filter(Boolean);
     $('fold-info').innerHTML = `${p.n_blocks} occupied blocks; fold sizes ${p.fold_sizes.join(', ')}.` + (empty.length ? ` <span class="warn">${esc(empty.join('; '))}.</span>` : '')
-      + (S.stale ? ' <span class="warn">Settings changed since the result below; run again to update it.</span>' : '');
+      + (S.stale ? ' <span class="warn">Settings changed since the result shown; run again to update it.</span>' : '');
     drawMap(true);
-  } catch (e) { if (mine !== previewSeq) return; S.previewOk = false; $('fold-info').innerHTML = `<span class="warn">${esc(e.message)}</span>`; $('run').disabled = true; }
+  } catch (e) { if (mine !== previewSeq) return; S.previewOk = false; $('fold-info').innerHTML = `<span class="warn">${esc(e.message)}</span>`; $('run').disabled = true; updateNext(); }
 }
 
 // ---------------------------------------------------------------- map drawing
-document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click', () => {
-  S.view = b.dataset.view; document.querySelectorAll('[data-view]').forEach(x => x.setAttribute('aria-pressed', String(x === b))); drawMap(false);
-}));
+document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('change', () => { S.view = b.dataset.view; drawMap(false); }));
 let fitted = null;
 async function drawMap(fit) {
   await mapReady;
   const P = (S.stale ? S.preview : S.result) || S.preview; if (!P) return;
   const lonlat = P.lonlat, classes = P.classes, y = P.y;
   const live = S.result && !S.stale, sp = live ? S.result.spatial : null, rnd = live ? S.result.random : null;
-  if (!live && (S.view === 'errors' || S.view === 'random')) S.view = 'folds';
+  if (!live && (S.view === 'errors' || S.view === 'random')) { S.view = 'folds'; document.querySelector('[data-view="folds"]').checked = true; }
   const spFolds = sp ? sp.folds : P.folds, blocksFC = sp ? sp.block_polygons : P.blocks;
   const color = i => {
     if (S.view === 'folds') return FOLD_COLORS[spFolds[i] % 10];
@@ -164,20 +167,21 @@ async function drawMap(fit) {
   const key = S.name + lonlat.length;
   if (fit && fitted !== key) {
     const xs = lonlat.map(c => c[0]), ys = lonlat.map(c => c[1]);
-    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: 40, duration: 700 }); fitted = key;
+    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 80, bottom: 140, left: window.innerWidth > 760 ? 380 : 40, right: window.innerWidth > 760 ? 260 : 40 }, duration: 700 }); fitted = key;
   }
   const L = $('legend'); L.hidden = false;
   const k = Math.max(...spFolds) + 1;
-  L.innerHTML = S.view === 'class' ? classes.map((c, i) => `<div><i style="background:${CLASS_COLORS[i % 10]}"></i>${esc(c)}</div>`).join('')
-    : S.view === 'errors' ? '<div><i style="background:#b42318"></i>wrong under spatial folds</div><div><i style="background:#c9c6bd"></i>right</div>'
-    : S.view === 'random' && !rnd ? '<div>Run the comparison to see the random folds</div>'
-    : Array.from({ length: S.view === 'random' && rnd.design.includes('hold-out') ? 1 : k }, (_, f) => `<div><i style="background:${FOLD_COLORS[f]}"></i>${S.view === 'random' && rnd.design.includes('hold-out') ? 'test (hold-out); grey: training' : `fold ${f + 1}`}</div>`).join('');
+  const sw = (c, t) => `<div class="sw"><i style="background:${c}"></i>${t}</div>`;
+  L.innerHTML = S.view === 'class' ? classes.map((c, i) => sw(CLASS_COLORS[i % 10], esc(c))).join('')
+    : S.view === 'errors' ? sw('#b42318', 'wrong under spatial folds') + sw('#c9c6bd', 'right')
+    : S.view === 'random' && !rnd ? '<div class="small">Run the comparison to see the random folds</div>'
+    : Array.from({ length: S.view === 'random' && rnd.design.includes('hold-out') ? 1 : k }, (_, f) => sw(FOLD_COLORS[f], S.view === 'random' && rnd.design.includes('hold-out') ? 'test (hold-out); grey: training' : `fold ${f + 1}`)).join('');
 }
 
 // ---------------------------------------------------------------- run
 $('run').addEventListener('click', runNow);
 async function runNow() {
-  $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now');
+  $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now'); $('log-box').hidden = false; $('log-box').open = true; $('results').hidden = true;
   const t0 = performance.now();
   try {
     const r = await ask('run', { cfg: cfg() }, m => line(m, 'now'));
@@ -186,15 +190,21 @@ async function runNow() {
     S.result = r; S.stale = false; S.sweep = null; S.runAt = new Date().toISOString();
     document.querySelector('[data-view="errors"]').disabled = false;
     render(r); drawMap(true);
-    $('results').hidden = false; $('results').scrollIntoView({ behavior: 'smooth' });
+    $('results').hidden = false; $('exports').hidden = false; $('log-box').open = false; $('r-title').textContent = 'Result';
   } catch (e) { line(e.message, 'err'); }
   finally { $('run').disabled = !S.previewOk; }
 }
 
 function render(r) {
   const a = r.random, b = r.spatial;
-  $('r-sub').textContent = `${r.rows_used.toLocaleString('en-GB')} of ${r.rows_total.toLocaleString('en-GB')} rows · ${r.classes.length} classes · ${r.config.features.length} predictors · Random Forest, ${r.config.model.n_estimators} trees · seed ${r.config.seed} · scikit-learn ${r.sklearn}`;
+  $('r-sub').textContent = `${r.rows_used.toLocaleString('en-GB')} rows, ${r.classes.length} classes, ${r.config.features.length} predictors. Random Forest, ${r.config.model.n_estimators} trees, seed ${r.config.seed}.`;
   const drop = a.pooled.accuracy - b.pooled.accuracy;
+  $('figs').innerHTML = [
+    [pct(a.pooled.accuracy), `${a.design.includes('hold-out') ? 'random hold-out' : 'random folds'} accuracy`],
+    [pct(b.pooled.accuracy), `${r.config.block_km} km blocks accuracy`],
+    [`${drop >= 0 ? '−' : '+'}${Math.abs(drop * 100).toFixed(1)}`, 'points with spatial blocks'],
+    [`${km(a.median_test_to_train_m)} / ${km(b.median_test_to_train_m)}`, 'test to training, median'],
+  ].map(([v, u]) => `<div class="fig"><b class="num">${v}</b><span>${u}</span></div>`).join('');
   $('gap').innerHTML = `Accuracy is <strong>${pct(a.pooled.accuracy)}</strong> with random test points (median ${km(a.median_test_to_train_m)} from the nearest training point) and <strong>${pct(b.pooled.accuracy)}</strong> with whole ${r.config.block_km} km blocks held out (median ${km(b.median_test_to_train_m)}${r.config.buffer_km > 0 ? `, after a ${r.config.buffer_km} km buffer` : ''}): ${drop >= 0 ? `${(drop * 100).toFixed(1)} percentage points lower` : `${(-drop * 100).toFixed(1)} points higher`}. One seed; the folds also differ in class mix, so read the gap as an indication, not a precise estimate.`;
   const card = (m, title, tag) => `<div class="method"><h3>${title} <span class="tag">${tag}</span></h3><p class="design">${esc(m.design)}</p>
     <div class="kpis">
@@ -315,8 +325,42 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
 
 // ---------------------------------------------------------------- example
 $('demo').addEventListener('click', async () => {
-  $('tool').scrollIntoView({ behavior: 'smooth' });
   await loadSample();
-  if (S.meta && !$('run').disabled) runNow();
+  if (S.meta && !$('run').disabled) { go(2); runNow(); }
 });
+
+// ---------------------------------------------------------------- steps, drawer, about
+let step = 0;
+function updateNext() {
+  if (step === 0) $('next').disabled = !S.meta;
+  if (step === 1) $('next').disabled = !S.previewOk;
+}
+function go(n) {
+  step = n;
+  document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = +p.dataset.pane !== n; });
+  document.querySelectorAll('.dots button').forEach(b => {
+    const k = +b.dataset.step; if (k === n) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
+    b.classList.toggle('done', k < n);
+  });
+  $('back').hidden = n === 0; $('next').hidden = n === 2; $('run').hidden = n !== 2;
+  updateNext();
+}
+document.querySelectorAll('.dots button').forEach(b => b.addEventListener('click', () => {
+  const k = +b.dataset.step; if (k === 0 || (k === 1 && S.meta) || (k === 2 && S.previewOk)) go(k);
+}));
+$('back').addEventListener('click', () => go(step - 1));
+$('next').addEventListener('click', () => go(step + 1));
+$('more').addEventListener('click', () => {
+  const open = $('drawer-body').hidden; $('drawer-body').hidden = !open; $('more').setAttribute('aria-expanded', String(open)); $('more').textContent = open ? 'Hide' : 'Details';
+});
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', String(x === b)));
+  document.querySelectorAll('[data-tabpane]').forEach(p => { p.hidden = p.dataset.tabpane !== b.dataset.tab; });
+}));
+$('ctl-toggle').addEventListener('click', () => { const o = $('mapctl').classList.toggle('open'); $('ctl-toggle').setAttribute('aria-expanded', String(o)); });
+$('about-open').addEventListener('click', () => { $('about').hidden = false; $('about-close').focus(); });
+$('about-close').addEventListener('click', () => { $('about').hidden = true; $('about-open').focus(); });
+$('about').addEventListener('click', e => { if (e.target === $('about')) $('about').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('about').hidden = true; });
+go(0);
 ask('init', {}, m => info(esc(m))).then(() => info('Python engine ready. Load the sample or a file.')).catch(e => info(`The Python engine could not start: ${e.message}`, true));

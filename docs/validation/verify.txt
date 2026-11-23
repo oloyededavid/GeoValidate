@@ -1,0 +1,24 @@
+# python3 tests/verify.py on the Pyodide result (2026-11-23)
+PASS random: accuracy recomputed  0.932400
+PASS random: kappa recomputed  0.915500
+PASS random: macro precision, recall, F1 recomputed
+PASS random: weighted F1 recomputed
+PASS random: confusion matrix recomputed
+PASS random: every row predicted once
+PASS random: per-fold accuracies recomputed
+PASS spatial: accuracy recomputed  0.888400
+PASS spatial: kappa recomputed  0.860500
+PASS spatial: macro precision, recall, F1 recomputed
+PASS spatial: weighted F1 recomputed
+PASS spatial: confusion matrix recomputed
+PASS spatial: every row predicted once
+PASS spatial: per-fold accuracies recomputed
+PASS spatial: each block in exactly one fold
+PASS spatial: blocks rebuilt independently match  81 blocks of 10 km
+PASS spatial: folds balanced within the largest block  sizes [998, 997, 1002, 1002, 1001]
+PASS random: stratified (class counts per fold differ by at most 1)
+PASS spatial test rows are farther from training rows than random ones  158 m vs 3093 m
+PASS leakage: imputer median learned from training rows only  median 1.5 (all rows would give 100)
+PASS random: CPython rerun reproduces the Pyodide predictions  100.0000% identical (scikit-learn 1.9.1 vs 1.4.2)
+PASS spatial: CPython rerun reproduces the Pyodide predictions  100.0000% identical (scikit-learn 1.9.1 vs 1.4.2)
+ALL PASSED

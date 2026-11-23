@@ -1,0 +1,143 @@
+{
+  "app": "GeoValidate",
+  "engine_version": "1.0.0",
+  "scikit_learn": "1.4.2",
+  "numpy": "1.26.4",
+  "pandas": "2.2.0",
+  "pyodide": "0.26.4",
+  "run_at": "2026-11-23T14:15:05.410Z",
+  "file": "sample_mau_forest.csv",
+  "file_sha256": "7ec4d124fe47b751d267ca59a0d30cfd7d933375b8a9a63cbbef060412c3eaba",
+  "rows_used": 5000,
+  "rows_total": 5000,
+  "projection": "+proj=aeqd +lat_0=-0.377410 +lon_0=35.943623 +datum=WGS84 +units=m +no_defs",
+  "config": {
+    "target": "land_cover",
+    "x": "lon",
+    "y": "lat",
+    "crs": "EPSG:4326",
+    "features": [
+      "B02",
+      "B03",
+      "B04",
+      "B05",
+      "B06",
+      "B07",
+      "B08",
+      "B8A",
+      "B11",
+      "B12",
+      "NDVI",
+      "NDWI",
+      "NDMI",
+      "NBR",
+      "elevation",
+      "slope"
+    ],
+    "k": 5,
+    "seed": 42,
+    "block_km": 10,
+    "buffer_km": 0,
+    "method": "compare",
+    "holdout_share": 0.25,
+    "text_sha256": "7ec4d124fe47b751d267ca59a0d30cfd7d933375b8a9a63cbbef060412c3eaba",
+    "file": "sample_mau_forest.csv",
+    "model": {
+      "n_estimators": 100,
+      "max_depth": null,
+      "min_samples_leaf": 1,
+      "max_features": "sqrt",
+      "class_weight": null
+    }
+  },
+  "numeric_predictors": [
+    "B02",
+    "B03",
+    "B04",
+    "B05",
+    "B06",
+    "B07",
+    "B08",
+    "B8A",
+    "B11",
+    "B12",
+    "NDVI",
+    "NDWI",
+    "NDMI",
+    "NBR",
+    "elevation",
+    "slope"
+  ],
+  "categorical_predictors": [],
+  "classes": [
+    "Built-up",
+    "Cropland and grassland",
+    "Forest",
+    "Plantation forest",
+    "Water and wetland"
+  ],
+  "results": {
+    "random": {
+      "design": "stratified random 5-fold",
+      "accuracy": 0.9324,
+      "macro_f1": 0.9324598376707582,
+      "kappa": 0.9155
+    },
+    "spatial": {
+      "design": "spatial block 5-fold, 10 km blocks",
+      "accuracy": 0.8884,
+      "macro_f1": 0.8875188219769756,
+      "kappa": 0.8605,
+      "n_blocks": 81
+    }
+  },
+  "sweep": {
+    "rows": [
+      {
+        "block_km": 1,
+        "accuracy": 0.9196,
+        "macro_f1": 0.9196047385266557,
+        "kappa": 0.8995,
+        "fold_sd": 0.02403747074881215,
+        "n_blocks": 2018,
+        "median_test_to_train_m": 540.8931286204564
+      },
+      {
+        "block_km": 2,
+        "accuracy": 0.9154,
+        "macro_f1": 0.9152786155959405,
+        "kappa": 0.89425,
+        "fold_sd": 0.02413089306262823,
+        "n_blocks": 1253,
+        "median_test_to_train_m": 839.8914263509844
+      },
+      {
+        "block_km": 5,
+        "accuracy": 0.8996,
+        "macro_f1": 0.8989930645683464,
+        "kappa": 0.8745,
+        "fold_sd": 0.03427535557802427,
+        "n_blocks": 319,
+        "median_test_to_train_m": 1523.7247470783511
+      },
+      {
+        "block_km": 10,
+        "accuracy": 0.8884,
+        "macro_f1": 0.8875188219769756,
+        "kappa": 0.8605,
+        "fold_sd": 0.071957256074228,
+        "n_blocks": 81,
+        "median_test_to_train_m": 3092.8267461793516
+      },
+      {
+        "block_km": 20,
+        "accuracy": 0.8768,
+        "macro_f1": 0.8758313069471285,
+        "kappa": 0.846,
+        "fold_sd": 0.08100585888207901,
+        "n_blocks": 25,
+        "median_test_to_train_m": 4715.709875430474
+      }
+    ]
+  }
+}

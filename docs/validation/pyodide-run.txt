@@ -1,0 +1,5 @@
+# node tests/pyodide_run.mjs (browser engine: Pyodide 0.26.4, scikit-learn 1.4.2) on data/sample_mau_forest.csv, 5 folds, seed 42, 10 km blocks (2026-11-23)
+Loading certifi, joblib, numpy, openblas, pandas, pyproj, python-dateutil, pytz, scikit-learn, scipy, six, sqlite3, threadpoolctl
+pyodide sklearn 1.4.2 seconds 16.979
+random stratified random 5-fold 0.9324 0.9325
+spatial spatial block 5-fold, 10 km blocks 0.8884 0.8875

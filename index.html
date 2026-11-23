@@ -27,7 +27,7 @@
 <section class="intro wrap">
   <p class="meta">Spatial machine-learning validation lab</p>
   <h1>Your map scored 95%. Would it score that somewhere new?</h1>
-  <p class="lead">Nearby places look alike. When training and test points are mixed at random, the model is often tested on near-copies of what it learned, and the score says more about memory than about how it works in a new area. GeoValidate trains the same Random Forest twice on your points: once with random folds, and once with whole blocks of territory held out. The difference shows how much your accuracy depends on test points sitting next to training points.</p>
+  <p class="lead">Nearby places look alike. With random folds, test points usually sit next to training points, so the score describes places like the training data. GeoValidate trains the same Random Forest twice on your points, once with random folds and once with whole blocks of territory held out, and shows both scores with the distance between test and training points.</p>
   <div class="intro-actions">
     <button class="btn primary" id="demo">Run the Mau Forest example</button>
     <a class="link" href="#method">What the two designs measure <span class="arrow" aria-hidden="true">↗</span></a>
@@ -142,7 +142,8 @@
 <section class="doc wrap" id="limits">
   <h2>Limits</h2>
   <ul class="limits">
-    <li>Spatial blocks are not automatically better. They answer a different question, and very large blocks can leave classes out of whole folds, which makes a fold's score unrepresentative.</li>
+    <li>Spatial blocks are not automatically better. They answer a different question, and very large blocks can leave classes out of whole folds, which makes a fold's score unrepresentative. Neither design estimates map accuracy, which needs a probability sample of reference data (Wadoux et al., 2021).</li>
+    <li>Results come from one seed. The two designs also differ in class mix per fold, so the gap is an indication, not a precise estimate.</li>
     <li>The block size should relate to how far spatial autocorrelation reaches in your data; the sweep shows how the score changes with it rather than choosing one for you.</li>
     <li>Classification only, Random Forest only, up to 50,000 rows, run on one thread in the browser.</li>
     <li>The sample comes from the Mau Forest study, whose labels are cells where two existing land-cover maps agree. It is easy to classify, so its absolute scores are optimistic about real map accuracy.</li>

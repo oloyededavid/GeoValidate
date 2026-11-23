@@ -72,7 +72,9 @@ async function load(text, name, kind) {
   try {
     const meta = await ask('load', { text, kind }, m => { info(esc(m)); line(m, 'now'); });
     log.querySelectorAll('li.now').forEach(l => l.classList.remove('now'));
-    Object.assign(S, { text, name, kind, meta, result: null, preview: null }); $('results').hidden = true;
+    Object.assign(S, { text, name, kind, meta, result: null, preview: null, view: 'folds' }); $('results').hidden = true;
+    document.querySelector('[data-view="errors"]').disabled = true;
+    document.querySelectorAll('[data-view]').forEach(x => x.setAttribute('aria-pressed', String(x.dataset.view === 'folds')));
     info(`<strong>${esc(name)}</strong> · ${meta.rows.toLocaleString('en-GB')} rows · ${meta.columns.length} columns · SHA-256 ${meta.sha256.slice(0, 12)}…`);
     await fillColumns(meta);
   } catch (e) { info(e.message, true); }
@@ -96,12 +98,14 @@ $('c-epsg').addEventListener('change', checkData);
 $('feats').addEventListener('change', () => { $('run').disabled = true; checkData(); });
 $('check').addEventListener('click', checkData);
 
+let checkSeq = 0, previewSeq = 0;
 async function checkData() {
   if (!S.meta) return;
-  const c = cfg();
+  const mine = ++checkSeq, c = cfg();
   if (c.crs === 'EPSG:' ) { $('quality').innerHTML = '<li>Enter the EPSG code of the projected coordinates.</li>'; return; }
   try {
     const q = await ask('inspect', { cfg: c });
+    if (mine !== checkSeq) return;
     const w = {}; for (const f of q.features) if (f.warnings.length) w[f.name] = f.warnings[0];
     const checked = new Set(c.features); renderFeats(w);
     document.querySelectorAll('#feats input').forEach(i => { i.checked = checked.has(i.value); });
@@ -122,13 +126,18 @@ let pvTimer = null;
 ['k', 'block', 'buffer', 'seed'].forEach(id => $(id).addEventListener('input', () => { outs(); clearTimeout(pvTimer); pvTimer = setTimeout(preview, 150); }));
 async function preview() {
   if (!S.meta) return;
+  const mine = ++previewSeq;
   try {
     const p = await ask('preview', { cfg: cfg() });
-    S.preview = p; $('run').disabled = false;
+    if (mine !== previewSeq) return;
+    S.preview = p; S.previewOk = true; $('run').disabled = false;
+    // a result computed with other settings is kept, but marked as out of date, and the map shows the new folds
+    S.stale = !!S.result && JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => S.result.config[k])) !== JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => cfg()[k]));
     const empty = p.fold_class_counts.map((c, f) => Object.entries(c).filter(([, n]) => n === 0).map(([k]) => k)).map((e, f) => e.length ? `fold ${f + 1} lacks ${e.join(', ')}` : '').filter(Boolean);
-    $('fold-info').innerHTML = `${p.n_blocks} occupied blocks; fold sizes ${p.fold_sizes.join(', ')}.` + (empty.length ? ` <span class="warn">${esc(empty.join('; '))}.</span>` : '');
+    $('fold-info').innerHTML = `${p.n_blocks} occupied blocks; fold sizes ${p.fold_sizes.join(', ')}.` + (empty.length ? ` <span class="warn">${esc(empty.join('; '))}.</span>` : '')
+      + (S.stale ? ' <span class="warn">Settings changed since the result below; run again to update it.</span>' : '');
     drawMap(true);
-  } catch (e) { $('fold-info').innerHTML = `<span class="warn">${esc(e.message)}</span>`; $('run').disabled = true; }
+  } catch (e) { if (mine !== previewSeq) return; S.previewOk = false; $('fold-info').innerHTML = `<span class="warn">${esc(e.message)}</span>`; $('run').disabled = true; }
 }
 
 // ---------------------------------------------------------------- map drawing
@@ -138,9 +147,10 @@ document.querySelectorAll('[data-view]').forEach(b => b.addEventListener('click'
 let fitted = null;
 async function drawMap(fit) {
   await mapReady;
-  const P = S.result || S.preview; if (!P) return;
-  const lonlat = P.lonlat, classes = (S.result ? S.result.classes : P.classes), y = P.y;
-  const sp = S.result ? S.result.spatial : null, rnd = S.result ? S.result.random : null;
+  const P = (S.stale ? S.preview : S.result) || S.preview; if (!P) return;
+  const lonlat = P.lonlat, classes = P.classes, y = P.y;
+  const live = S.result && !S.stale, sp = live ? S.result.spatial : null, rnd = live ? S.result.random : null;
+  if (!live && (S.view === 'errors' || S.view === 'random')) S.view = 'folds';
   const spFolds = sp ? sp.folds : P.folds, blocksFC = sp ? sp.block_polygons : P.blocks;
   const color = i => {
     if (S.view === 'folds') return FOLD_COLORS[spFolds[i] % 10];
@@ -173,22 +183,22 @@ async function runNow() {
     const r = await ask('run', { cfg: cfg() }, m => line(m, 'now'));
     log.querySelectorAll('li.now').forEach(l => l.classList.remove('now'));
     line(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-    S.result = r; S.sweep = null; S.runAt = new Date().toISOString();
+    S.result = r; S.stale = false; S.sweep = null; S.runAt = new Date().toISOString();
     document.querySelector('[data-view="errors"]').disabled = false;
     render(r); drawMap(true);
     $('results').hidden = false; $('results').scrollIntoView({ behavior: 'smooth' });
   } catch (e) { line(e.message, 'err'); }
-  finally { $('run').disabled = false; }
+  finally { $('run').disabled = !S.previewOk; }
 }
 
 function render(r) {
   const a = r.random, b = r.spatial;
   $('r-sub').textContent = `${r.rows_used.toLocaleString('en-GB')} of ${r.rows_total.toLocaleString('en-GB')} rows · ${r.classes.length} classes · ${r.config.features.length} predictors · Random Forest, ${r.config.model.n_estimators} trees · seed ${r.config.seed} · scikit-learn ${r.sklearn}`;
   const drop = a.pooled.accuracy - b.pooled.accuracy;
-  $('gap').innerHTML = `Accuracy is <strong>${pct(a.pooled.accuracy)}</strong> when test points are mixed in at random (median ${km(a.median_test_to_train_m)} from the nearest training point) and <strong>${pct(b.pooled.accuracy)}</strong> when whole ${r.config.block_km} km blocks are held out (median ${km(b.median_test_to_train_m)}): ${drop >= 0 ? `${(drop * 100).toFixed(1)} percentage points lower` : `${(-drop * 100).toFixed(1)} points higher`}.`;
+  $('gap').innerHTML = `Accuracy is <strong>${pct(a.pooled.accuracy)}</strong> with random test points (median ${km(a.median_test_to_train_m)} from the nearest training point) and <strong>${pct(b.pooled.accuracy)}</strong> with whole ${r.config.block_km} km blocks held out (median ${km(b.median_test_to_train_m)}${r.config.buffer_km > 0 ? `, after a ${r.config.buffer_km} km buffer` : ''}): ${drop >= 0 ? `${(drop * 100).toFixed(1)} percentage points lower` : `${(-drop * 100).toFixed(1)} points higher`}. One seed; the folds also differ in class mix, so read the gap as an indication, not a precise estimate.`;
   const card = (m, title, tag) => `<div class="method"><h3>${title} <span class="tag">${tag}</span></h3><p class="design">${esc(m.design)}</p>
     <div class="kpis">
-      <div class="kpi"><span class="v">${pct(m.pooled.accuracy)}</span><span class="u">overall accuracy</span></div>
+      <div class="kpi"><span class="v">${pct(m.pooled.accuracy)}</span><span class="u">overall accuracy${m.pooled.n < r.rows_used ? ` (${m.pooled.n} of ${r.rows_used} rows)` : ''}</span></div>
       <div class="kpi"><span class="v">${num(m.pooled.macro.f1, 3)}</span><span class="u">macro F1</span></div>
       <div class="kpi"><span class="v">${num(m.pooled.kappa, 3)}</span><span class="u">Cohen's kappa</span></div>
       <div class="kpi"><span class="v">${m.per_fold.length > 1 ? '±' + pct(m.fold_accuracy_sd) : '—'}</span><span class="u">fold spread (SD)</span></div>
@@ -257,7 +267,8 @@ $('sweep').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------- exports
-const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+// text that starts with = + - @ is prefixed with ' so spreadsheets do not run it as a formula
+const csvCell = v => { let s = v == null ? '' : String(v); if (typeof v === 'string' && /^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const csv = rows => rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
 function save(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', async () => {

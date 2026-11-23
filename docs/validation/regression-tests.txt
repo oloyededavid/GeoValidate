@@ -1,0 +1,8 @@
+# python3 tests/regression_test.py (2026-11-23)
+PASS hold-out result is valid JSON without NaN
+PASS categorical predictor with missing values runs
+PASS design label says not stratified when a class is smaller than k  random 4-fold (not stratified)
+PASS numeric near-unique column not flagged as leakage
+PASS categorical copy of the target flagged as leakage
+PASS non-numeric values in a numeric column reported
+ALL PASSED

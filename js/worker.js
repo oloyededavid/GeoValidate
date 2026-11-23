@@ -40,13 +40,13 @@ DF = gv.read_table(TEXT, KIND)
 json.dumps({'columns': list(DF.columns), 'rows': len(DF), 'guess': gv.guess_columns(DF), 'sha256': TEXTSHA,
             'head': json.loads(DF.head(5).to_json(orient='values', double_precision=6))})`, { TEXT: m.text, KIND: m.kind });
     } else if (m.cmd === 'inspect') {
-      out = await call(`c = json.loads(CFG); json.dumps(gv.inspect(DF, c['target'], c['x'], c['y'], c['features'], c['crs']))`, { CFG: m.cfg });
+      out = await call(`c = json.loads(CFG); gv.to_json(gv.inspect(DF, c['target'], c['x'], c['y'], c['features'], c['crs']))`, { CFG: m.cfg });
     } else if (m.cmd === 'preview') {
-      out = await call(`json.dumps(gv.fold_preview(DF, json.loads(CFG)))`, { CFG: m.cfg });
+      out = await call(`gv.to_json(gv.fold_preview(DF, json.loads(CFG)))`, { CFG: m.cfg });
     } else if (m.cmd === 'run') {
-      out = await call(`json.dumps(gv.run(DF, json.loads(CFG), progress=report))`, { CFG: m.cfg });
+      out = await call(`gv.to_json(gv.run(DF, json.loads(CFG), progress=report))`, { CFG: m.cfg });
     } else if (m.cmd === 'sweep') {
-      out = await call(`json.dumps(gv.sweep(DF, json.loads(CFG), json.loads(BLOCKS), progress=report))`, { CFG: m.cfg, BLOCKS: m.blocks });
+      out = await call(`gv.to_json(gv.sweep(DF, json.loads(CFG), json.loads(BLOCKS), progress=report))`, { CFG: m.cfg, BLOCKS: m.blocks });
     } else throw new Error('Unknown command');
     send('done', { id, out });
   } catch (e) {

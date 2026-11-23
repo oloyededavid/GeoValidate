@@ -1,0 +1,38 @@
+"""Regression tests for the issues found in the independent review. Run: python3 tests/regression_test.py"""
+import json, sys
+import numpy as np, pandas as pd
+sys.path.insert(0, "py")
+import geovalidate as gv
+fails = 0
+def check(name, cond, info=""):
+    global fails
+    print(("PASS " if cond else "FAIL ") + name + (f"  {info}" if info else "")); fails += 0 if cond else 1
+
+rng = np.random.default_rng(0)
+n = 300
+df = pd.DataFrame({"lon": 36 + rng.random(n) * 0.5, "lat": -0.5 + rng.random(n) * 0.5, "a": rng.random(n), "b": rng.random(n),
+                   "soil": rng.choice(["clay", "sand", "loam"], n), "y": rng.choice(["u", "v", "w"], n)})
+df.loc[[3, 17, 40], "soil"] = None
+base = {"target": "y", "x": "lon", "y": "lat", "crs": "EPSG:4326", "k": 4, "seed": 1, "block_km": 10, "model": {"n_estimators": 20}}
+
+# hold-out returns JSON the browser can parse (no bare NaN)
+out = gv.to_json(gv.run(df, {**base, "features": ["a", "b"], "method": "holdout"}))
+check("hold-out result is valid JSON without NaN", "NaN" not in out and json.loads(out)["random"]["design"] == "random hold-out")
+# categorical predictor with missing values runs
+try:
+    r = gv.run(df, {**base, "features": ["a", "soil"]}); check("categorical predictor with missing values runs", r["random"]["pooled"]["n"] == n)
+except Exception as e:
+    check("categorical predictor with missing values runs", False, str(e))
+# stratified label follows the splitter actually used
+small = df.copy(); small.loc[:1, "y"] = "rare"
+r = gv.run(small, {**base, "features": ["a"]})
+check("design label says not stratified when a class is smaller than k", "not stratified" in r["random"]["design"], r["random"]["design"])
+# leakage heuristic: a near-unique numeric column is not flagged; a categorical copy of the target is
+q = gv.inspect(df.assign(c=df["y"].map({"u": "x1", "v": "x2", "w": "x3"})), "y", "lon", "lat", ["a", "c"], "EPSG:4326")
+w = {f["name"]: f["warnings"] for f in q["features"]}
+check("numeric near-unique column not flagged as leakage", not any("leakage" in x for x in w["a"]))
+check("categorical copy of the target flagged as leakage", any("leakage" in x for x in w["c"]))
+# non-numeric values in a numeric column are reported
+q2 = gv.inspect(df.assign(a=df["a"].astype(object).where(df.index > 5, "n/a")), "y", "lon", "lat", ["a"], "EPSG:4326")
+check("non-numeric values in a numeric column reported", any("non-numeric" in x for x in q2["features"][0]["warnings"]))
+print(f"{fails} FAILED" if fails else "ALL PASSED"); sys.exit(1 if fails else 0)

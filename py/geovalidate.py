@@ -28,6 +28,22 @@ MAX_ROWS = 50_000
 COORD_NAMES = {"x", "y", "lon", "lng", "long", "longitude", "lat", "latitude", "easting", "northing", "row", "col", "column"}
 
 
+# ---------------------------------------------------------------- JSON
+def to_json(obj) -> str:
+    """JSON with NaN and infinities written as null (JSON has no NaN; the browser's JSON.parse would reject it)."""
+    def clean(o):
+        if isinstance(o, float):
+            return o if math.isfinite(o) else None
+        if isinstance(o, dict):
+            return {k: clean(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [clean(v) for v in o]
+        if isinstance(o, np.generic):
+            return clean(o.item())
+        return o
+    return json.dumps(clean(obj), allow_nan=False)
+
+
 # ---------------------------------------------------------------- loading
 def read_table(text: str, kind: str) -> pd.DataFrame:
     """Parse CSV text or a GeoJSON FeatureCollection of points into a DataFrame. GeoJSON points become columns lon, lat."""
@@ -106,9 +122,18 @@ def inspect(df: pd.DataFrame, target: str, x: str, y: str, features: list[str], 
             info["warnings"].append("unique for every row: looks like an identifier")
         if c.lower() in COORD_NAMES or c in (x, y):
             info["warnings"].append("a coordinate: the model can learn location itself, which inflates random validation")
-        # a predictor that determines the target exactly is suspicious (target leakage)
-        if s.notna().all() and tgt.notna().all() and df.groupby(c)[target].nunique().max() == 1 and info["unique"] < n and info["unique"] >= classes.size > 1:
-            info["warnings"].append("each value maps to a single class: possible target leakage")
+        if is_num:
+            bad = int((num.isna() & s.notna()).sum())
+            if bad:
+                info["warnings"].append(f"{bad} non-numeric values will be treated as missing")
+        # a categorical predictor whose values each map to a single class, with at least 5 rows per value, is suspicious
+        # (target leakage); numeric columns are not tested because near-unique values map to one class trivially
+        if not is_num and classes.size > 1:
+            pair = pd.DataFrame({"v": s, "t": tgt}).dropna()
+            if len(pair):
+                g = pair.groupby("v")["t"].agg(["nunique", "size"])
+                if (g["nunique"] == 1).all() and g["size"].min() >= 5 and len(g) >= classes.size:
+                    info["warnings"].append("each value maps to a single class: possible target leakage")
         feats.append(info)
     imbalance = float(classes.max() / classes.min()) if classes.size > 1 else None
     problems = []
@@ -156,7 +181,7 @@ def prepare(df, target, x, y, features, crs) -> Prepared:
         if num.notna().sum() >= 0.95 * X[c].notna().sum() and X[c].notna().sum() > 0:
             X[c] = num; numeric.append(c)
         else:
-            X[c] = X[c].astype("string").astype(object); categorical.append(c)
+            X[c] = X[c].map(lambda v: np.nan if pd.isna(v) else str(v)).astype(object); categorical.append(c)
     yv = sub[target].astype(str).to_numpy()
     lon, lat = xs.iloc[keep].to_numpy(float), ys.iloc[keep].to_numpy(float)
     if crs == "EPSG:4326":
@@ -241,7 +266,7 @@ def random_folds(y, k: int, seed: int) -> np.ndarray:
     splitter = StratifiedKFold(k, shuffle=True, random_state=seed) if min_count >= k else KFold(k, shuffle=True, random_state=seed)
     for f, (_, te) in enumerate(splitter.split(np.zeros(len(y)), y)):
         folds[te] = f
-    return folds
+    return folds, min_count >= k
 
 
 def holdout(y, test_share: float, seed: int) -> np.ndarray:
@@ -354,6 +379,8 @@ def evaluate(prep: Prepared, folds: np.ndarray, cfg: ModelConfig, seed: int, buf
     pooled = metrics(yt, yp, prep.classes)
     cm = confusion_matrix(yt, yp, labels=prep.classes)
     accs = [m["accuracy"] for m in per_fold]
+    if not done.all():
+        warnings.append(f"{int((~done).sum())} rows were not predicted (a fold was skipped); the pooled metrics cover {int(done.sum())} rows")
     return {"pooled": pooled, "confusion_matrix": cm.tolist(), "labels": prep.classes, "per_fold": per_fold,
             "fold_accuracy_mean": float(np.mean(accs)) if accs else float("nan"),
             "fold_accuracy_sd": float(np.std(accs, ddof=1)) if len(accs) > 1 else float("nan"),
@@ -380,9 +407,12 @@ def run(df: pd.DataFrame, cfg: dict, progress=None) -> dict:
         out["random"] = evaluate(prep, folds, model_cfg, seed, 0.0, step("Random hold-out"))
         out["random"]["folds"] = folds.tolist(); out["random"]["design"] = "random hold-out"
     else:
-        rf = random_folds(prep.y, k, seed)
+        rf, strat = random_folds(prep.y, k, seed)
         out["random"] = evaluate(prep, rf, model_cfg, seed, 0.0, step("Random k-fold"))
-        out["random"]["folds"] = rf.tolist(); out["random"]["design"] = f"stratified random {k}-fold"
+        out["random"]["folds"] = rf.tolist()
+        out["random"]["design"] = f"stratified random {k}-fold" if strat else f"random {k}-fold (not stratified)"
+        if not strat:
+            out["random"]["warnings"].append(f"the smallest class has fewer than {k} rows, so the random folds are not stratified")
     sp = spatial_folds(prep.xy, float(cfg.get("block_km", 10)) * 1000, k, seed)
     out["spatial"] = evaluate(prep, sp["folds"], model_cfg, seed, float(cfg.get("buffer_km", 0)) * 1000, step("Spatial block k-fold"))
     out["spatial"].update({"folds": sp["folds"].tolist(), "blocks": sp["blocks"].tolist(), "n_blocks": sp["n_blocks"],

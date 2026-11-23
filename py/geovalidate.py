@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import math
 from dataclasses import dataclass, field, asdict
 
@@ -152,7 +153,7 @@ def inspect(df: pd.DataFrame, target: str, x: str, y: str, features: list[str], 
             spread = max_spread_km(xs[ok].to_numpy(float), ys[ok].to_numpy(float))
             if spread > 3000:
                 problems.append(f"points lie up to {spread:,.0f} km from their centre; the equidistant projection stretches blocks far "
-                                f"from the centre (about {100 * aeqd_stretch(spread):.0f}% at that distance), so block sizes are approximate there")
+                                f"from the centre ({f"about {100 * aeqd_stretch(spread):.0f}%" if spread < 10000 else "without a useful bound"} at that distance), so block sizes are approximate there")
     return {"rows": n, "missing_coordinates": missing_xy, "invalid_coordinates": bad_xy, "missing_target": missing_target,
             "duplicate_rows": dup_rows, "duplicate_locations": dup_xy, "classes": {str(k): int(v) for k, v in classes.items()},
             "imbalance_ratio": imbalance, "features": feats, "problems": problems}
@@ -222,12 +223,20 @@ def lonlat_of(df, keep, x, y, crs):
     return np.column_stack([lon, lat])
 
 
+def unwrap(lon, lon0):
+    """Longitude shifted by whole turns to lie within 180 degrees of lon0, so a block across the 180 degree meridian keeps
+    continuous corners (e.g. 179.9 and 180.1) instead of spanning the globe. Values may therefore exceed 180."""
+    return float(lon0 + ((lon - lon0 + 180.0) % 360.0) - 180.0)
+
+
 def block_polygons(prep: Prepared, block_m: float, ix, iy, blocks, folds) -> dict:
     """GeoJSON of the occupied blocks with their fold, corners transformed back to longitude/latitude for the map."""
     from pyproj import Transformer
     x0, y0 = prep.xy[:, 0].min(), prep.xy[:, 1].min()
     src = prep.projection.split(" (")[0]
     inv = Transformer.from_crs(src, "EPSG:4326", always_xy=True)
+    m = re.search(r"\+lon_0=(-?[\d.]+)", src)
+    lon0 = float(m.group(1)) if m else 0.0   # projected input: no wrapping needed in practice
     feats = []
     seen = {}
     for b, i, j, f in zip(blocks, ix, iy, folds):
@@ -236,6 +245,7 @@ def block_polygons(prep: Prepared, block_m: float, ix, iy, blocks, folds) -> dic
         xs = [x0 + i * block_m, x0 + (i + 1) * block_m]; ys = [y0 + j * block_m, y0 + (j + 1) * block_m]
         ring = [(xs[0], ys[0]), (xs[1], ys[0]), (xs[1], ys[1]), (xs[0], ys[1]), (xs[0], ys[0])]
         lon, lat = inv.transform([p[0] for p in ring], [p[1] for p in ring])
+        lon = [unwrap(a, lon0) for a in lon]
         feats.append({"type": "Feature", "properties": {"block": int(b), "fold": int(f)},
                       "geometry": {"type": "Polygon", "coordinates": [[[round(a, 6), round(c, 6)] for a, c in zip(lon, lat)]]}})
     return {"type": "FeatureCollection", "features": feats}
@@ -263,7 +273,7 @@ def max_spread_km(lon, lat):
 
 def aeqd_stretch(d_km):
     """Scale error across the radial direction of an azimuthal equidistant projection at distance d: theta / sin(theta) - 1."""
-    t = d_km / 6371.0
+    t = min(d_km / 6371.0, 3.0)   # near the antipode the stretch has no useful bound; 3 rad (19,000 km) is used as a cap
     return float(t / np.sin(t) - 1)
 
 

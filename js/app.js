@@ -77,7 +77,7 @@ async function load(text, name, kind) {
   try {
     const meta = await ask('load', { text, kind }, m => { info(esc(m)); line(m, 'now'); });
     log.querySelectorAll('li.now').forEach(l => l.classList.remove('now'));
-    Object.assign(S, { text, name, kind, meta, result: null, preview: null, view: 'folds' }); resetResult();
+    Object.assign(S, { text, name, kind, meta, result: null, preview: null, previewOk: false, sweep: null, stale: false, view: 'folds' }); resetResult();
     document.querySelector('[data-view="errors"]').disabled = true;
     document.querySelectorAll('[data-view]').forEach(x => { x.checked = x.dataset.view === 'folds'; });
     $('views').hidden = false; summary(0, `${name}, ${meta.rows.toLocaleString('en-GB')} rows`);
@@ -121,7 +121,7 @@ async function checkData() {
     $('quality').innerHTML = `<li>${q.rows.toLocaleString('en-GB')} rows; classes: ${cls}</li>` +
       (q.problems.length ? q.problems.map(p => `<li class="warn">${esc(p)}</li>`).join('') : '<li class="ok">No problems found in rows, coordinates or target.</li>');
     await preview();
-  } catch (e) { $('quality').innerHTML = `<li class="warn">${esc(e.message)}</li>`; $('run').disabled = true; }
+  } catch (e) { $('quality').innerHTML = `<li class="warn">${esc(e.message)}</li>`; S.previewOk = false; $('run').disabled = true; updateNext(); }
 }
 
 // ---------------------------------------------------------------- design controls and live fold preview
@@ -131,6 +131,7 @@ const outs = () => {
 };
 $('block').max = BLOCKS.length - 1; $('block').value = BLOCKS.indexOf(10); outs();
 let pvTimer = null;
+['trees', 'leaf', 'cw', 'holdout'].forEach(id => $(id).addEventListener('change', () => { clearTimeout(pvTimer); pvTimer = setTimeout(preview, 150); }));
 ['k', 'block', 'buffer', 'seed'].forEach(id => $(id).addEventListener('input', () => { outs(); clearTimeout(pvTimer); pvTimer = setTimeout(preview, 150); }));
 async function preview() {
   if (!S.meta) return;
@@ -141,7 +142,8 @@ async function preview() {
     S.preview = p; S.previewOk = true; $('run').disabled = false; updateNext();
     summary(1, `${cfg().target}; ${cfg().features.length} predictors`);
     // a result computed with other settings is kept, but marked as out of date, and the map shows the new folds
-    S.stale = !!S.result && JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => S.result.config[k])) !== JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => cfg()[k]));
+    const keyOf = c => JSON.stringify([c.target, c.x, c.y, c.crs, c.features, c.k, c.seed, c.block_km, c.buffer_km, c.method, c.model]);
+    S.stale = !!S.result && keyOf(S.result.config) !== keyOf(cfg());
     const empty = p.fold_class_counts.map((c, f) => Object.entries(c).filter(([, n]) => n === 0).map(([k]) => k)).map((e, f) => e.length ? `fold ${f + 1} lacks ${e.join(', ')}` : '').filter(Boolean);
     $('fold-info').innerHTML = `${p.n_blocks} occupied blocks; fold sizes ${p.fold_sizes.join(', ')}.` + (empty.length ? ` <span class="warn">${esc(empty.join('; '))}.</span>` : '')
       + (S.stale ? ' <span class="warn">Settings changed since the result shown; run again to update it.</span>' : '');
@@ -170,7 +172,9 @@ async function drawMap(fit) {
   map.getSource('blocks').setData(showBlocks ? { ...blocksFC, features: blocksFC.features.map(f => ({ ...f, properties: { ...f.properties, color: S.view === 'folds' ? FOLD_COLORS[f.properties.fold % 10] : '#6a6963' } })) } : { type: 'FeatureCollection', features: [] });
   const key = S.name + lonlat.length;
   if (fit && fitted !== key) {
-    const xs = lonlat.map(c => c[0]), ys = lonlat.map(c => c[1]);
+    const sn = lonlat.reduce((q, c) => q + Math.sin(c[0] * Math.PI / 180), 0), cs = lonlat.reduce((q, c) => q + Math.cos(c[0] * Math.PI / 180), 0);
+    const lon0 = Math.atan2(sn, cs) * 180 / Math.PI;   // circular mean, as the projection uses
+    const xs = lonlat.map(c => lon0 + ((c[0] - lon0 + 540) % 360) - 180), ys = lonlat.map(c => c[1]);
     map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 60, bottom: 40, left: 40, right: 40 }, duration: 700 }); fitted = key;
   }
   const L = $('legend'); L.hidden = false;
@@ -185,7 +189,7 @@ async function drawMap(fit) {
 // ---------------------------------------------------------------- run
 $('run').addEventListener('click', runNow);
 async function runNow() {
-  $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now'); resetResult(); summary(2, 'Running');
+  $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now'); S.result = null; S.sweep = null; resetResult(); summary(2, 'Running'); document.querySelector('[data-view="errors"]').disabled = true; drawMap(false);
   const t0 = performance.now();
   try {
     const r = await ask('run', { cfg: cfg() }, m => line(m, 'now'));
@@ -194,9 +198,9 @@ async function runNow() {
     S.result = r; S.stale = false; S.sweep = null; S.runAt = new Date().toISOString();
     document.querySelector('[data-view="errors"]').disabled = false;
     render(r); drawMap(true);
-    setLocks();
+    setLocks(); if (window.innerWidth <= 860) document.querySelector('.main').scrollIntoView({ behavior: 'smooth' });
   } catch (e) { line(e.message, 'err'); summary(2, 'Failed; see the message below'); }
-  finally { $('run').disabled = !S.previewOk; }
+  finally { $('run').disabled = !S.previewOk || cfg().crs === 'EPSG:'; }
 }
 
 function render(r) {
@@ -206,7 +210,7 @@ function render(r) {
   $('r-title').textContent = S.name || 'Result';
   summary(2, `Done: ${pct(a.pooled.accuracy)} random, ${pct(b.pooled.accuracy)} spatial`);
   const k = [
-    [a.design.includes('hold-out') ? 'Random hold-out' : 'Random folds', pct(a.pooled.accuracy), `kappa ${num(a.pooled.kappa, 3)}, fold spread ±${pct(a.fold_accuracy_sd)}`],
+    [a.design.includes('hold-out') ? 'Random hold-out' : 'Random folds', pct(a.pooled.accuracy), `kappa ${num(a.pooled.kappa, 3)}${a.per_fold.length > 1 ? `, fold spread ±${pct(a.fold_accuracy_sd)}` : ', single hold-out'}`],
     [`Spatial blocks, ${r.config.block_km} km`, pct(b.pooled.accuracy), `kappa ${num(b.pooled.kappa, 3)}, fold spread ±${pct(b.fold_accuracy_sd)}`],
     ['Difference', `${drop >= 0 ? '−' : '+'}${Math.abs(drop * 100).toFixed(1)}<small>points</small>`, drop >= 0 ? 'lower when whole blocks are held out' : 'higher when whole blocks are held out'],
     ['Test to training', `${km(a.median_test_to_train_m)} / ${km(b.median_test_to_train_m)}`, 'median distance, random / spatial'],
@@ -269,7 +273,7 @@ function drawFolds(r) {
 }
 function drawSweep() {
   const c = $('c-sweep'), { ctx, W, H } = fitCanvas(c, 240), pad = { l: 40, r: 8, t: 12, b: 40 };
-  if (!S.sweep) { ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#6e7681'; ctx.font = '13px Satoshi, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(S.result ? 'Run the sweep to see how accuracy changes' : 'Compare the two designs first', W / 2, H / 2); return; }
+  if (!S.sweep || !S.result) { ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#6e7681'; ctx.font = '13px Satoshi, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(S.result ? 'Run the sweep to see how accuracy changes' : 'Compare the two designs first', W / 2, H / 2); return; }
   const rows = S.sweep.rows.filter(r => r.accuracy != null), base = S.result.random.pooled.accuracy;
   const all = rows.map(r => r.accuracy).concat([base]);
   const lo = Math.max(0, Math.floor((Math.min(...all) - 0.02) * 20) / 20), hi = Math.min(1, Math.ceil((Math.max(...all) + 0.01) * 20) / 20);
@@ -285,11 +289,12 @@ function drawSweep() {
 $('sweep').addEventListener('click', async () => {
   if (!S.result) return;
   const sizes = [1, 2, 5, 10, 20].filter(b => b !== S.result.config.block_km).concat([S.result.config.block_km]).sort((a, b) => a - b);
+  document.querySelectorAll('.sweep-note').forEach(n => n.remove());
   $('sweep').disabled = true; $('sweep').textContent = 'Running…';
   try { S.sweep = await ask('sweep', { cfg: S.result.config, blocks: sizes }, m => { $('sweep').textContent = m; }); drawSweep();
-    const bad = S.sweep.rows.filter(r => r.error); if (bad.length) $('sweep').insertAdjacentHTML('afterend', `<p class="warn">* ${bad.map(r => esc(r.error)).join('; ')}</p>`); }
+    const bad = S.sweep.rows.filter(r => r.error); if (bad.length) $('sweep').insertAdjacentHTML('afterend', `<p class="warn sweep-note">* ${bad.map(r => esc(r.error)).join('; ')}</p>`); }
   catch (e) { alert(e.message); }
-  finally { $('sweep').disabled = false; $('sweep').textContent = 'Run the block-size sweep again'; }
+  finally { $('sweep').disabled = !S.result; $('sweep').textContent = 'Run the block-size sweep again'; }
 });
 
 // ---------------------------------------------------------------- exports
@@ -335,6 +340,7 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
     $('report').innerHTML = `<h1>GeoValidate report</h1><p>${esc(S.name)} · ${r.rows_used} rows · run ${esc(S.runAt)} · SHA-256 ${esc(S.meta.sha256)}</p>
       <p>${$('gap').innerHTML}</p><img src="${img}" alt="Map of spatial folds"><h2>Results</h2>${$('compare').innerHTML}
       <h2>Configuration</h2><p class="src">${esc(JSON.stringify(r.config))}</p><p class="src">scikit-learn ${esc(r.sklearn)} in Pyodide 0.26.4 · GeoValidate ${esc(r.version)}</p>`;
+    await new Promise(res => { const im = $('report').querySelector('img'); im.complete ? res() : (im.onload = res); });
     window.print();
   }
 }));
@@ -351,7 +357,10 @@ function summary(k, t) { $(`sum-${k}`).textContent = t; }
 const reach = k => k === 0 || (k === 1 && !!S.meta) || (k === 2 && !!S.meta && !!S.previewOk);
 const complete = k => k === 0 ? !!S.meta : k === 1 ? !!S.previewOk : !!S.result;
 function setLocks() {
-  document.querySelectorAll('.step').forEach(el => { const k = +el.dataset.step; el.classList.toggle('locked', !reach(k)); el.classList.toggle('done', k !== step && complete(k)); });
+  document.querySelectorAll('.step').forEach(el => {
+    const k = +el.dataset.step, h = el.querySelector('.step-h');
+    el.classList.toggle('locked', !reach(k)); el.classList.toggle('done', k !== step && complete(k)); h.setAttribute('aria-disabled', String(!reach(k))); h.tabIndex = reach(k) ? 0 : -1;
+  });
 }
 function updateNext() { $('next-0').disabled = !S.meta; $('next-1').disabled = !S.previewOk; setLocks(); }
 function go(n) {
@@ -375,12 +384,21 @@ document.querySelectorAll('.step-h').forEach(h => h.addEventListener('click', ()
 $('next-0').addEventListener('click', () => go(1));
 $('next-1').addEventListener('click', () => go(2));
 function showTab(t) {
-  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', String(x.dataset.tab === t)));
+  document.querySelectorAll('.tabs button').forEach(x => { x.setAttribute('aria-selected', String(x.dataset.tab === t)); x.tabIndex = x.dataset.tab === t ? 0 : -1; });
   document.querySelectorAll('[data-tabpane]').forEach(p => { p.hidden = p.dataset.tabpane !== t; });
   if (S.result && t === 'folds') drawFolds(S.result);
   if (t === 'sweep') drawSweep();
 }
-document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+const tabBtns = [...document.querySelectorAll('.tabs button')];
+tabBtns.forEach(b => {
+  const pane = document.querySelector(`[data-tabpane="${b.dataset.tab}"]`);
+  b.id = `tab-${b.dataset.tab}`; pane.id = `pane-${b.dataset.tab}`; pane.setAttribute('role', 'tabpanel'); pane.setAttribute('aria-labelledby', b.id); b.setAttribute('aria-controls', pane.id);
+  b.addEventListener('click', () => showTab(b.dataset.tab));
+  b.addEventListener('keydown', e => {
+    const i = tabBtns.indexOf(b), j = e.key === 'ArrowRight' ? (i + 1) % tabBtns.length : e.key === 'ArrowLeft' ? (i - 1 + tabBtns.length) % tabBtns.length : -1;
+    if (j < 0) return; e.preventDefault(); tabBtns[j].focus(); showTab(tabBtns[j].dataset.tab);
+  });
+});
 window.addEventListener('resize', () => { if (S.result) { drawFolds(S.result); drawSweep(); } });
 $('dl-menu').addEventListener('toggle', () => { if ($('dl-menu').open && !S.result) { $('dl-menu').open = false; $('r-sub').textContent = 'Compare the two designs first; downloads are made from the result.'; } });
 document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => { $('dl-menu').open = false; }));

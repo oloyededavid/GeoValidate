@@ -41,4 +41,11 @@ check("points across the 180 degree meridian project close together", np.ptp(xy[
 wide = df.assign(lon=np.linspace(-60, 60, len(df)))
 check("data spread over continents get a block-size warning", any("stretches blocks" in p for p in gv.inspect(wide, "y", "lon", "lat", ["a"], "EPSG:4326")["problems"]))
 check("compact data get no such warning", not any("stretches blocks" in p for p in gv.inspect(df, "y", "lon", "lat", ["a"], "EPSG:4326")["problems"]))
+# block outlines across the 180 degree meridian keep continuous corners
+rng = np.random.default_rng(1)
+lon = np.concatenate([rng.uniform(179.0, 180, 100), rng.uniform(-180, -179.0, 100)])
+fj = pd.DataFrame({"lon": ((lon + 180) % 360) - 180, "lat": rng.uniform(-18, -17, 200), "a": rng.normal(size=200), "y": rng.choice(["u", "v"], 200)})
+pv = gv.fold_preview(fj, {"target": "y", "x": "lon", "y": "lat", "features": ["a"], "crs": "EPSG:4326", "k": 5, "seed": 42, "block_km": 10})
+span = max(max(c[0] for c in f["geometry"]["coordinates"][0]) - min(c[0] for c in f["geometry"]["coordinates"][0]) for f in pv["blocks"]["features"])
+check("block outlines across the 180 degree meridian stay compact", span < 1, f"widest block spans {span:.3f} degrees of longitude")
 print(f"{fails} FAILED" if fails else "ALL PASSED"); sys.exit(1 if fails else 0)

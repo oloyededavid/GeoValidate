@@ -14,11 +14,12 @@ Run on 23 November 2026. Evidence files are in `docs/validation/`.
 | 8 | Spatial test points farther from training than random ones | Yes | Median 158 m vs 3,093 m | Pass | `verify.txt` |
 | 9 | Leakage: imputer learned from training rows only | Median 1.5 (all rows would give 100) | 1.5 | Pass | `verify.txt` |
 | 10 | Reproducibility: CPython (scikit-learn 1.9.1) with the same configuration | Same predictions | 100% identical | Pass | `verify.txt` |
-| 11 | Whole user journey in headless Chromium, 1440 × 960: example, comparison, preview, sweep, exports | Works; no console errors | Example in 24.3 s, including 35.8 MB of packages; 2 km preview gives 1,253 blocks; sweep drawn; 5 downloads; no console errors | Pass | `browser-e2e.txt`, `docs/screenshots/` |
+| 11 | Whole user journey in headless Chromium, 1440 × 960: example, comparison, preview, sweep, exports | Works; no console errors | Example in 23.9 s (redesigned full-screen page), including 35.8 MB of packages; 2 km preview gives 1,253 blocks; sweep drawn; 5 downloads; no console errors | Pass | `browser-e2e.txt`, `docs/screenshots/` |
 | 12 | Invalid file type rejected | Message | "“not-data.txt” is not a CSV or GeoJSON file." | Pass | `browser-e2e.txt` |
 | 13 | Empty CSV rejected | Message | "The file has no rows" | Pass | `browser-e2e.txt` |
 | 14 | Non-metre or geographic EPSG code rejected | Message | EPSG:2263 (US survey foot) refused | Pass | Run during development (`check_crs`) |
 | 15 | Phone width, 390 px | No horizontal scrolling | 0 px | Pass | `browser-e2e.txt` |
+| 17 | Points across the 180° meridian; data spread over continents | Projected together; warning above 3,000 km from the centre | Four points at 179.5° E to 179.6° W span 95.5 km; warning raised for points from 60° W to 60° E, not for the sample | Pass | `regression-tests.txt` |
 | 16 | Exports correspond to the run | CSV and GeoJSON rows match the run's folds and predictions | Written from the same result object; sizes in `browser-e2e.txt` | Pass, by construction (contents not re-parsed) | `js/app.js` |
 | 17 | Deployed site | Same journey on GitHub Pages | Not deployed yet; pushing needs the owner's approval | Pending | — |
 

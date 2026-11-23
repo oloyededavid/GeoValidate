@@ -1,8 +1,10 @@
-# python3 tests/regression_test.py (2026-11-23)
 PASS hold-out result is valid JSON without NaN
 PASS categorical predictor with missing values runs
 PASS design label says not stratified when a class is smaller than k  random 4-fold (not stratified)
 PASS numeric near-unique column not flagged as leakage
 PASS categorical copy of the target flagged as leakage
 PASS non-numeric values in a numeric column reported
+PASS points across the 180 degree meridian project close together  95.5 km; +proj=aeqd +lat_0=-17.650000 +lon_0=179.950000 +datum=WGS84 +units=m +no_defs
+PASS data spread over continents get a block-size warning
+PASS compact data get no such warning
 ALL PASSED

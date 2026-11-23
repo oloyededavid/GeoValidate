@@ -34,7 +34,7 @@ Reported, never silently fixed:
   - possible target leakage: each value maps to a single class.
 
 ## 4. Coordinates and distances (`prepare`, `project_aeqd`)
-- **Longitude/latitude** are projected with an azimuthal equidistant projection centred on the median point (pyproj). Distances from the centre are exact; elsewhere the distortion is small for study areas of a few hundred kilometres.
+- **Longitude/latitude** are projected with an azimuthal equidistant projection (pyproj) centred on the median latitude and the circular mean of longitude, so data on both sides of the 180° meridian are centred correctly. Distances from the centre are exact. Across the radial direction the scale is stretched by θ/sin θ − 1, where θ is the distance from the centre divided by 6,371 km: about 0.4% at 1,000 km and 3.8% at 3,000 km. When points lie more than 3,000 km from the centre, the data check says so (`max_spread_km`, `aeqd_stretch`).
 - **Projected coordinates** are used as given, in metres.
 
 ## 5. Folds

@@ -146,6 +146,13 @@ def inspect(df: pd.DataFrame, target: str, x: str, y: str, features: list[str], 
     if dup_xy: problems.append(f"{dup_xy} rows share a location with an earlier row")
     if imbalance and imbalance > 10: problems.append(f"the largest class is {imbalance:.0f} times the smallest; macro averages weigh classes equally")
     if not features: problems.append("no predictors selected")
+    if crs == "EPSG:4326":
+        ok = (xs.abs() <= 180) & (ys.abs() <= 90) & xs.notna() & ys.notna()
+        if ok.sum() > 1:
+            spread = max_spread_km(xs[ok].to_numpy(float), ys[ok].to_numpy(float))
+            if spread > 3000:
+                problems.append(f"points lie up to {spread:,.0f} km from their centre; the equidistant projection stretches blocks far "
+                                f"from the centre (about {100 * aeqd_stretch(spread):.0f}% at that distance), so block sizes are approximate there")
     return {"rows": n, "missing_coordinates": missing_xy, "invalid_coordinates": bad_xy, "missing_target": missing_target,
             "duplicate_rows": dup_rows, "duplicate_locations": dup_xy, "classes": {str(k): int(v) for k, v in classes.items()},
             "imbalance_ratio": imbalance, "features": feats, "problems": problems}
@@ -247,11 +254,26 @@ def fold_preview(df: pd.DataFrame, cfg: dict) -> dict:
             "y": prep.y.tolist()}
 
 
+def max_spread_km(lon, lat):
+    """Largest great-circle distance (km, sphere of 6,371 km) from the projection centre used by project_aeqd."""
+    r = np.radians(lon); lon0 = np.arctan2(np.mean(np.sin(r)), np.mean(np.cos(r))); lat0 = np.radians(np.median(lat))
+    p = np.radians(lat); c = np.sin(lat0) * np.sin(p) + np.cos(lat0) * np.cos(p) * np.cos(r - lon0)
+    return float(np.degrees(np.arccos(np.clip(c, -1, 1))).max() * np.pi / 180 * 6371.0)
+
+
+def aeqd_stretch(d_km):
+    """Scale error across the radial direction of an azimuthal equidistant projection at distance d: theta / sin(theta) - 1."""
+    t = d_km / 6371.0
+    return float(t / np.sin(t) - 1)
+
+
 def project_aeqd(lon, lat):
     """Azimuthal equidistant projection centred on the data: distances from the centre are exact and block sizes are in
     metres. pyproj is imported lazily so the module loads without it when coordinates are already projected."""
     from pyproj import Transformer
-    lon0, lat0 = float(np.median(lon)), float(np.median(lat))
+    # circular mean of longitude, so data on both sides of the 180 degree meridian get a centre between them
+    r = np.radians(np.asarray(lon, float))
+    lon0, lat0 = float(np.degrees(np.arctan2(np.mean(np.sin(r)), np.mean(np.cos(r))))), float(np.median(lat))
     proj = f"+proj=aeqd +lat_0={lat0:.6f} +lon_0={lon0:.6f} +datum=WGS84 +units=m +no_defs"
     t = Transformer.from_crs("EPSG:4326", proj, always_xy=True)
     x, y = t.transform(lon, lat)

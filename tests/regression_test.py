@@ -35,4 +35,10 @@ check("categorical copy of the target flagged as leakage", any("leakage" in x fo
 # non-numeric values in a numeric column are reported
 q2 = gv.inspect(df.assign(a=df["a"].astype(object).where(df.index > 5, "n/a")), "y", "lon", "lat", ["a"], "EPSG:4326")
 check("non-numeric values in a numeric column reported", any("non-numeric" in x for x in q2["features"][0]["warnings"]))
+# global data: points on both sides of the 180 degree meridian stay together; very spread data get a warning
+xy, proj = gv.project_aeqd(np.array([179.5, 179.8, -179.9, -179.6]), np.array([-17.5, -17.6, -17.7, -17.8]))
+check("points across the 180 degree meridian project close together", np.ptp(xy[:, 0]) < 100e3, f"{np.ptp(xy[:, 0]) / 1e3:.1f} km; {proj}")
+wide = df.assign(lon=np.linspace(-60, 60, len(df)))
+check("data spread over continents get a block-size warning", any("stretches blocks" in p for p in gv.inspect(wide, "y", "lon", "lat", ["a"], "EPSG:4326")["problems"]))
+check("compact data get no such warning", not any("stretches blocks" in p for p in gv.inspect(df, "y", "lon", "lat", ["a"], "EPSG:4326")["problems"]))
 print(f"{fails} FAILED" if fails else "ALL PASSED"); sys.exit(1 if fails else 0)

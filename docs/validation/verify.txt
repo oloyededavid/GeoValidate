@@ -1,4 +1,3 @@
-# python3 tests/verify.py on the Pyodide result (2026-11-23)
 PASS random: accuracy recomputed  0.932400
 PASS random: kappa recomputed  0.915500
 PASS random: macro precision, recall, F1 recomputed

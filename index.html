@@ -7,134 +7,142 @@
 <meta name="description" content="Compare random and spatial block cross-validation of a Random Forest classifier on your own point data, with scikit-learn running in your browser. Your data never leave your computer.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/maplibre-gl.css">
-<link rel="stylesheet" href="css/tool.css">
+<link rel="stylesheet" href="css/dash.css">
 <link rel="stylesheet" href="css/geovalidate.css">
-<style>:root { --hue: #b4530a; --hue-soft: #fbf0e6; }</style>
+<style>:root { --accent: #b4530a; --accent-soft: #fbf0e6; }</style>
 <script src="vendor/maplibre-gl.js"></script>
 </head>
 <body>
-<div id="map" role="region" aria-label="Map of the points and folds"></div>
-
-<header class="bar">
-  <a class="brand" href="./"><i></i>GeoValidate</a>
-  <nav>
-    <button class="pill" id="about-open" type="button">About</button>
-    <a class="pill hide-sm" href="https://github.com/oloyededavid/GeoValidate">Code</a>
-  </nav>
-</header>
-
-<section class="panel" aria-label="Steps">
-  <div class="dots">
-    <button type="button" data-step="0" aria-current="step">1 Data</button>
-    <button type="button" data-step="1">2 Columns</button>
-    <button type="button" data-step="2">3 Design</button>
-  </div>
-
-  <div class="pane" data-pane="0">
-    <h2>Your points</h2>
-    <p class="lead">A CSV or GeoJSON of labelled points. It stays on your computer.</p>
-    <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a CSV or GeoJSON file">Drop a file here or click to choose<br><span class="small">Up to 20 MB and 50,000 rows</span></div>
-    <input type="file" id="file" accept=".csv,.geojson,.json,text/csv,application/geo+json" hidden>
-    <div class="row" style="margin-top:10px">
-      <button class="btn" id="sample" type="button">Load the sample</button>
-      <button class="btn" id="demo" type="button">Run the example</button>
+<div class="app">
+  <aside class="rail" aria-label="Analysis steps">
+    <a class="brand" href="./"><i></i><b>GeoValidate</b></a>
+    <div class="steps">
+      <section class="step open" data-step="0">
+        <button class="step-h" type="button" aria-expanded="true"><span class="n">1</span><span class="t">Data</span><span class="s" id="sum-0">Labelled points, CSV or GeoJSON</span></button>
+        <div class="step-b" data-pane="0">
+          <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a CSV or GeoJSON file">Drop a file or click to choose<br><span class="small">Up to 20 MB and 50,000 rows. It stays on your computer.</span></div>
+          <input type="file" id="file" accept=".csv,.geojson,.json,text/csv,application/geo+json" hidden>
+          <div class="row" style="margin-top:8px">
+            <button class="rb" id="sample" type="button">Load sample</button>
+            <button class="rb" id="demo" type="button">Run example</button>
+          </div>
+          <p class="small" id="data-info" aria-live="polite" style="margin:10px 0 0"></p>
+          <button class="rb go wide" id="next-0" type="button" disabled>Continue</button>
+        </div>
+      </section>
+      <section class="step locked" data-step="1">
+        <button class="step-h" type="button" aria-expanded="false"><span class="n">2</span><span class="t">Columns</span><span class="s" id="sum-1">Target, coordinates, predictors</span></button>
+        <div class="step-b" data-pane="1" hidden>
+          <div class="grid2">
+            <label class="f">Target<select id="c-target" class="in"></select></label>
+            <label class="f">Coordinates<select id="c-crs" class="in"><option value="EPSG:4326">lon / lat</option><option value="projected">projected, m</option></select></label>
+            <label class="f">X or longitude<select id="c-x" class="in"></select></label>
+            <label class="f">Y or latitude<select id="c-y" class="in"></select></label>
+            <label class="f" id="epsg-box" hidden>EPSG code<input type="number" id="c-epsg" class="in" placeholder="32737"></label>
+          </div>
+          <div class="feats" id="feats" aria-label="Predictors"></div>
+          <ul class="quality" id="quality" aria-live="polite"></ul>
+          <div class="row"><button class="rb" id="check" type="button" style="flex:0">Check again</button><span></span></div>
+          <button class="rb go wide" id="next-1" type="button" disabled>Continue</button>
+        </div>
+      </section>
+      <section class="step locked" data-step="2">
+        <button class="step-h" type="button" aria-expanded="false"><span class="n">3</span><span class="t">Validation design</span><span class="s" id="sum-2">Folds, block size, model</span></button>
+        <div class="step-b" data-pane="2" hidden>
+          <label class="f">Folds <output id="o-k">5</output><input type="range" id="k" min="3" max="10" step="1" value="5"></label>
+          <label class="f">Block size <output id="o-block">10 km</output><input type="range" id="block" min="0" max="100" step="1" value="50"></label>
+          <label class="f">Buffer around test blocks <output id="o-buffer">none</output><input type="range" id="buffer" min="0" max="20" step="0.5" value="0"></label>
+          <details><summary>Model and seed</summary>
+            <div class="grid2">
+              <label class="f">Trees<input type="number" id="trees" class="in" min="10" max="500" value="100"></label>
+              <label class="f">Random seed<input type="number" id="seed" class="in" value="42"></label>
+              <label class="f">Min. per leaf<input type="number" id="leaf" class="in" min="1" max="50" value="1"></label>
+              <label class="f">Class weights<select id="cw" class="in"><option value="">none</option><option value="balanced">balanced</option></select></label>
+            </div>
+            <label class="check"><input type="checkbox" id="holdout"> Single random hold-out (25%) instead of random k-fold</label>
+          </details>
+          <p class="small" id="fold-info" style="margin:8px 0 0"></p>
+          <button class="rb go wide" id="run" type="button" disabled>Compare the two designs</button>
+        </div>
+      </section>
     </div>
-    <p class="small" id="data-info" aria-live="polite"></p>
-    <p class="small muted">The first run downloads about 36 MB of Python packages, then the browser keeps them.</p>
-  </div>
-
-  <div class="pane" data-pane="1" hidden>
-    <h2>Columns</h2>
-    <p class="lead">What to predict, where each point is, and which columns to use.</p>
-    <div class="grid2">
-      <label>Target (class) <select id="c-target"></select></label>
-      <label>Coordinates <select id="c-crs"><option value="EPSG:4326">lon / lat</option><option value="projected">projected, metres</option></select></label>
-      <label>X or longitude <select id="c-x"></select></label>
-      <label>Y or latitude <select id="c-y"></select></label>
-      <label id="epsg-box" hidden>EPSG code <input type="number" id="c-epsg" placeholder="e.g. 32737"></label>
+    <div class="status" id="status" hidden>
+      <div class="bar"><i id="bar"></i></div>
+      <div class="msg" id="msg" aria-live="polite"></div>
+      <details><summary>Processing log</summary><ol class="log" id="log"></ol></details>
     </div>
-    <div class="feats" id="feats" aria-label="Predictors"></div>
-    <ul class="quality" id="quality" aria-live="polite"></ul>
-    <button class="link" id="check" type="button" style="margin-top:6px">Check again</button>
-  </div>
+  </aside>
 
-  <div class="pane" data-pane="2" hidden>
-    <h2 id="r-title">Validation design</h2>
-    <p class="lead" id="r-sub">The same Random Forest is scored twice: random folds, and whole blocks of territory held out.</p>
-    <label class="field">Folds <span class="slider"><input type="range" id="k" min="3" max="10" step="1" value="5" aria-label="Number of folds"><output id="o-k">5</output></span></label>
-    <label class="field">Block size <span class="slider"><input type="range" id="block" min="0" max="100" step="1" value="50" aria-label="Block size"><output id="o-block">10 km</output></span></label>
-    <label class="field">Buffer around test blocks <span class="slider"><input type="range" id="buffer" min="0" max="20" step="0.5" value="0" aria-label="Buffer"><output id="o-buffer">none</output></span></label>
-    <details class="more"><summary>Model and seed</summary>
-      <div class="grid2">
-        <label>Trees <input type="number" id="trees" min="10" max="500" value="100"></label>
-        <label>Random seed <input type="number" id="seed" value="42"></label>
-        <label>Min. samples per leaf <input type="number" id="leaf" min="1" max="50" value="1"></label>
-        <label>Class weights <select id="cw"><option value="">none</option><option value="balanced">balanced</option></select></label>
+  <main class="main">
+    <header class="head">
+      <div class="title">
+        <h1 id="r-title">Random against spatial validation</h1>
+        <p class="sub" id="r-sub">Would your classifier score as well somewhere new? Same model, two ways of choosing test points.</p>
       </div>
-      <label class="check"><input type="checkbox" id="holdout"> Single random hold-out (25%) instead of random k-fold</label>
-    </details>
-    <p class="small" id="fold-info"></p>
-    <details class="more" id="log-box" hidden><summary>Processing log</summary><ol class="log" id="log" aria-live="polite"></ol></details>
-    <div class="dl" id="exports" hidden style="margin-top:12px">
-      <button class="btn" type="button" data-export="eval">Evaluation CSV</button>
-      <button class="btn" type="button" data-export="folds">Folds CSV</button>
-      <button class="btn" type="button" data-export="geojson">GeoJSON</button>
-      <button class="btn" type="button" data-export="config">JSON</button>
-      <button class="btn" type="button" data-export="png">Charts PNG</button>
-      <button class="btn" type="button" data-export="pdf">Report</button>
-    </div>
-  </div>
+      <details class="menu" id="dl-menu">
+        <summary class="hb" id="dl-btn">Download</summary>
+        <div class="menu-list">
+          <button type="button" data-export="eval">Evaluation<span>CSV, overall and per fold</span></button>
+          <button type="button" data-export="folds">Fold assignments<span>CSV, one row per point</span></button>
+          <button type="button" data-export="geojson">Fold map<span>GeoJSON points and blocks</span></button>
+          <button type="button" data-export="config">Configuration<span>JSON with versions and file hash</span></button>
+          <button type="button" data-export="png">Charts<span>PNG</span></button>
+          <button type="button" data-export="pdf">Report<span>Print or save as PDF</span></button>
+        </div>
+      </details>
+      <button class="hb" id="about-open" type="button">About</button>
+    </header>
 
-  <div class="pane-nav">
-    <button class="btn" id="back" type="button" hidden>Back</button>
-    <span></span>
-    <button class="btn primary" id="next" type="button" disabled>Next</button>
-    <button class="btn primary" id="run" type="button" disabled hidden>Compare</button>
-  </div>
-</section>
+    <section class="kpis empty" id="figs" aria-label="Key figures">
+      <div class="kpi"><div class="l">Random folds</div><div class="v">–</div><div class="d">overall accuracy</div></div>
+      <div class="kpi"><div class="l">Spatial blocks</div><div class="v">–</div><div class="d">overall accuracy</div></div>
+      <div class="kpi"><div class="l">Difference</div><div class="v">–</div><div class="d">percentage points</div></div>
+      <div class="kpi"><div class="l">Test to training</div><div class="v">–</div><div class="d">median distance, random / spatial</div></div>
+    </section>
 
-<div class="mapctl" id="mapctl">
-  <button class="pill ctl-toggle" id="ctl-toggle" type="button" aria-expanded="false">Layers</button>
-  <fieldset class="layers" id="views" hidden>
-    <legend class="vh">Map view</legend>
-    <div class="seg">
-      <label><input type="radio" name="view" data-view="folds" checked> Spatial folds</label>
-      <label><input type="radio" name="view" data-view="random"> Random folds</label>
-      <label><input type="radio" name="view" data-view="class"> Classes</label>
-      <label><input type="radio" name="view" data-view="errors" disabled> Errors (spatial)</label>
+    <div class="body">
+      <div class="mapwrap">
+        <div id="map" role="region" aria-label="Map of the points and folds"></div>
+        <div class="mapbar">
+          <fieldset class="seg" id="views" hidden>
+            <legend class="vh">Map view</legend>
+            <label><input type="radio" name="view" data-view="folds" checked>Spatial folds</label>
+            <label><input type="radio" name="view" data-view="random">Random folds</label>
+            <label><input type="radio" name="view" data-view="class">Classes</label>
+            <label><input type="radio" name="view" data-view="errors" disabled>Errors</label>
+          </fieldset>
+        </div>
+        <div class="legend" id="legend" hidden></div>
+      </div>
+
+      <section class="panel" aria-label="Evidence">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="folds" aria-selected="true">Folds</button>
+          <button type="button" role="tab" data-tab="metrics" aria-selected="false">Metrics</button>
+          <button type="button" role="tab" data-tab="sweep" aria-selected="false">Block size</button>
+        </div>
+        <div class="tabpane" data-tabpane="folds">
+          <h2>Accuracy by fold</h2>
+          <p id="gap">Load data and compare the two designs to see how much the score depends on test points sitting next to training points.</p>
+          <canvas class="chart" id="c-folds" width="720" height="240" role="img" aria-label="Accuracy of each fold for both designs" hidden></canvas>
+        </div>
+        <div class="tabpane" data-tabpane="metrics" hidden>
+          <div class="compare" id="compare"><p class="empty-state">Metrics appear after a comparison.</p></div>
+        </div>
+        <div class="tabpane" data-tabpane="sweep" hidden>
+          <h2>Accuracy against block size</h2>
+          <p>Spatial block accuracy as the blocks grow; the dashed line is random folds.</p>
+          <canvas class="chart" id="c-sweep" width="720" height="240" role="img" aria-label="Spatial accuracy against block size"></canvas>
+          <button class="hb" id="sweep" type="button" style="margin-top:10px" disabled>Run the block-size sweep (5 sizes)</button>
+        </div>
+      </section>
     </div>
-  </fieldset>
-  <div class="legend" id="legend" hidden></div>
+  </main>
 </div>
-
-<section class="drawer" id="results" hidden aria-label="Results">
-  <div class="drawer-head">
-    <div class="figs" id="figs"></div>
-    <button class="btn" id="more" type="button" aria-expanded="false">Details</button>
-  </div>
-  <div class="drawer-body" id="drawer-body" hidden>
-    <p class="note" id="gap" style="margin:0 0 12px"></p>
-    <div class="tabs" role="tablist">
-      <button type="button" role="tab" data-tab="folds" aria-selected="true">Folds</button>
-      <button type="button" role="tab" data-tab="metrics" aria-selected="false">Metrics</button>
-      <button type="button" role="tab" data-tab="sweep" aria-selected="false">Block size</button>
-    </div>
-    <div data-tabpane="folds">
-      <p class="small" style="margin:0 0 6px">Accuracy of each fold (dots) and over all predictions (line).</p>
-      <canvas class="chart" id="c-folds" width="720" height="240" role="img" aria-label="Accuracy of each fold for both designs"></canvas>
-    </div>
-    <div data-tabpane="metrics" hidden><div class="compare" id="compare"></div></div>
-    <div data-tabpane="sweep" hidden>
-      <p class="small" style="margin:0 0 6px">Spatial block accuracy as the blocks grow; dashed: random folds.</p>
-      <canvas class="chart" id="c-sweep" width="720" height="240" role="img" aria-label="Spatial accuracy against block size"></canvas>
-      <button class="btn" id="sweep" type="button" style="margin-top:8px">Run the block-size sweep (5 sizes)</button>
-    </div>
-  </div>
-</section>
 
 <div class="sheet" id="about" hidden role="dialog" aria-modal="true" aria-labelledby="about-h">
   <article>
-    <button class="btn close" id="about-close" type="button">Close</button>
+    <button class="hb x" id="about-close" type="button">Close</button>
     <h2 id="about-h">About GeoValidate</h2>
     <p>Nearby places look alike. With random folds, test points usually sit next to training points, so the score describes places like the training data. GeoValidate trains the same Random Forest twice on your points, once with random folds and once with whole blocks of territory held out, and shows both scores with the distance between test and training points. Everything runs in your browser with scikit-learn (Pyodide); files are never uploaded.</p>
     <h3>Method</h3>
@@ -142,17 +150,17 @@
       <tr><td>Random k-fold</td><td>Points split into k folds stratified by class.</td></tr>
       <tr><td>Spatial block k-fold</td><td>A grid of square blocks; whole blocks go to folds, largest first to the fold with the fewest points, after shuffling with the seed. A block's points are never split between training and test.</td></tr>
       <tr><td>Model</td><td>Per fold, a fresh pipeline: median imputation of numeric predictors, most-frequent imputation and one-hot encoding of categorical ones, then a Random Forest, all fitted on that fold's training rows only. Both designs use the same pipeline, settings and seed.</td></tr>
-      <tr><td>Distances</td><td>Lon/lat are projected with an azimuthal equidistant projection centred on the data, so block sizes and buffers are in metres. The median distance from test points to the nearest training point is reported for each design.</td></tr>
+      <tr><td>Distances</td><td>Lon/lat are projected with an azimuthal equidistant projection centred on the data (circular mean of longitude, so data across the 180° meridian work), so block sizes and buffers are in metres. The median distance from test points to the nearest training point is reported for each design.</td></tr>
       <tr><td>Metrics</td><td>Overall accuracy, Cohen's kappa, per-class precision, recall and F1 with macro and weighted averages, over all out-of-fold predictions. Fold spread is the SD of fold accuracy.</td></tr>
       <tr><td>Buffer</td><td>Optionally removes training points within a distance of any test point in each fold.</td></tr>
-      <tr><td>Checks</td><td>Missing or out-of-range coordinates and targets, duplicates, class imbalance, constant or identifier-like columns, coordinates used as predictors, and predictors whose values each map to one class. Problems are reported; data are not changed silently.</td></tr>
+      <tr><td>Checks</td><td>Missing or out-of-range coordinates and targets, duplicates, class imbalance, constant or identifier-like columns, coordinates used as predictors, predictors whose values each map to one class, and data spread so widely that block sizes become approximate. Problems are reported; data are not changed silently.</td></tr>
     </table>
     <h3>Limits</h3>
     <ul>
       <li>Spatial blocks answer a different question; they are not automatically better. Very large blocks can leave classes out of whole folds. Neither design estimates map accuracy, which needs a probability sample of reference data (Wadoux et al., 2021).</li>
       <li>One seed; the designs also differ in class mix per fold, so the gap is an indication, not a precise estimate.</li>
       <li>The block size should relate to how far spatial autocorrelation reaches; the sweep shows how the score changes with it.</li>
-      <li>Classification only, Random Forest only, up to 50,000 rows, one thread.</li>
+      <li>Classification only, Random Forest only, up to 50,000 rows, one thread. The first run downloads about 36 MB of Python packages.</li>
       <li>The sample comes from the Mau Forest study; its labels are cells where two land-cover maps agree. It is easy to classify, so its scores are optimistic about real map accuracy.</li>
     </ul>
     <p class="small">GeoValidate v1.0.0. Full methodology and tests in the <a href="https://github.com/oloyededavid/GeoValidate">repository</a>. Code MIT; sample data CC BY 4.0 (contains modified Copernicus Sentinel-2 data). Basemap © OpenStreetMap contributors, OpenFreeMap.</p>

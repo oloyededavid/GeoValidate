@@ -13,15 +13,14 @@ const fs = require('fs');
   await page.screenshot({ path: `${out}/gv_landing.png` });
   const t0 = Date.now();
   await page.click('#demo');
-  await page.waitForSelector('#results:not([hidden])', { timeout: 300000 });
+  await page.waitForSelector('#figs:not(.empty)', { timeout: 300000 });
   await page.waitForTimeout(1500);
   console.log('example seconds (engine start + run)', (Date.now() - t0) / 1000, '| pyodide MB downloaded', (bytes.n / 1e6).toFixed(1));
   console.log('log:', await page.$$eval('#log li', ls => ls.map(l => l.textContent).join(' | ')));
   console.log('gap:', await page.textContent('#gap'));
-  console.log('kpis:', await page.$$eval('.method', ms => ms.map(m => [...m.querySelectorAll('.kpi')].map(k => k.textContent.replace(/\s+/g, ' ').trim()).join(' / ')).join(' || ')));
-  console.log('figures:', await page.$$eval('.fig', fs => fs.map(f => f.textContent.replace(/\s+/g, ' ').trim()).join(' || ')));
+  console.log('kpis:', await page.$$eval('.method', ms => ms.map(m => [...m.querySelectorAll('.mki')].map(k => k.textContent.replace(/\s+/g, ' ').trim()).join(' / ')).join(' || ')));
+  console.log('figures:', await page.$$eval('.kpi', fs => fs.map(f => f.textContent.replace(/\s+/g, ' ').trim()).join(' || ')));
   await page.screenshot({ path: `${out}/gv_tool.png` });
-  await page.click('#more'); await page.waitForTimeout(600);
   await page.screenshot({ path: `${out}/gv_results.png` });
   await page.click('.tabs [data-tab="metrics"]'); await page.waitForTimeout(500);
   await page.screenshot({ path: `${out}/gv_metrics.png` });
@@ -36,6 +35,7 @@ const fs = require('fs');
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${out}/gv_sweep.png` });
   for (const k of ['eval', 'folds', 'geojson', 'png', 'config']) {
+    await page.click('#dl-btn');
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click(`[data-export="${k}"]`)]);
     const p = `${out}/${dl.suggestedFilename()}`; await dl.saveAs(p); console.log('export', k, fs.statSync(p).size, 'bytes', p);
   }

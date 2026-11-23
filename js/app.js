@@ -19,14 +19,17 @@ worker.onmessage = ({ data }) => {
 };
 const ask = (cmd, payload = {}, onProgress) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject, onProgress }); worker.postMessage({ cmd, id, ...payload }); });
 const log = $('log');
-const line = (msg, cls = '') => { log.querySelectorAll('li.now').forEach(l => l.classList.remove('now')); const li = document.createElement('li'); li.textContent = msg; if (cls) li.className = cls; log.append(li); };
+const line = (msg, cls = '') => {
+  log.querySelectorAll('li.now').forEach(l => l.classList.remove('now')); const li = document.createElement('li'); li.textContent = msg; if (cls) li.className = cls; log.append(li);
+  $('status').hidden = false; $('msg').textContent = msg; $('msg').className = cls === 'err' ? 'msg err' : 'msg';
+  $('bar').style.width = /^Done/.test(msg) ? '100%' : `${Math.min(92, log.children.length * 8)}%`;
+};
 
 // ---------------------------------------------------------------- map
 const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', center: [0, 15], zoom: 1.3, attributionControl: false, preserveDrawingBuffer: true });
-// bottom-left: the results drawer covers the bottom-right corner
-map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
-map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
 const mapReady = new Promise(r => map.on('load', r));
 mapReady.then(() => {
   map.addSource('blocks', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -74,10 +77,10 @@ async function load(text, name, kind) {
   try {
     const meta = await ask('load', { text, kind }, m => { info(esc(m)); line(m, 'now'); });
     log.querySelectorAll('li.now').forEach(l => l.classList.remove('now'));
-    Object.assign(S, { text, name, kind, meta, result: null, preview: null, view: 'folds' }); $('results').hidden = true;
+    Object.assign(S, { text, name, kind, meta, result: null, preview: null, view: 'folds' }); resetResult();
     document.querySelector('[data-view="errors"]').disabled = true;
     document.querySelectorAll('[data-view]').forEach(x => { x.checked = x.dataset.view === 'folds'; });
-    $('views').hidden = false; $('exports').hidden = true; $('log-box').hidden = true; $('r-title').textContent = 'Validation design';
+    $('views').hidden = false; summary(0, `${name}, ${meta.rows.toLocaleString('en-GB')} rows`);
     info(`<strong>${esc(name)}</strong> · ${meta.rows.toLocaleString('en-GB')} rows · ${meta.columns.length} columns · SHA-256 ${meta.sha256.slice(0, 12)}…`);
     await fillColumns(meta);
     if (step === 0) go(1);
@@ -136,6 +139,7 @@ async function preview() {
     const p = await ask('preview', { cfg: cfg() });
     if (mine !== previewSeq) return;
     S.preview = p; S.previewOk = true; $('run').disabled = false; updateNext();
+    summary(1, `${cfg().target}; ${cfg().features.length} predictors`);
     // a result computed with other settings is kept, but marked as out of date, and the map shows the new folds
     S.stale = !!S.result && JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => S.result.config[k])) !== JSON.stringify(['k', 'seed', 'block_km', 'buffer_km'].map(k => cfg()[k]));
     const empty = p.fold_class_counts.map((c, f) => Object.entries(c).filter(([, n]) => n === 0).map(([k]) => k)).map((e, f) => e.length ? `fold ${f + 1} lacks ${e.join(', ')}` : '').filter(Boolean);
@@ -167,7 +171,7 @@ async function drawMap(fit) {
   const key = S.name + lonlat.length;
   if (fit && fitted !== key) {
     const xs = lonlat.map(c => c[0]), ys = lonlat.map(c => c[1]);
-    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 80, bottom: 140, left: window.innerWidth > 760 ? 380 : 40, right: window.innerWidth > 760 ? 260 : 40 }, duration: 700 }); fitted = key;
+    map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 60, bottom: 40, left: 40, right: 40 }, duration: 700 }); fitted = key;
   }
   const L = $('legend'); L.hidden = false;
   const k = Math.max(...spFolds) + 1;
@@ -181,7 +185,7 @@ async function drawMap(fit) {
 // ---------------------------------------------------------------- run
 $('run').addEventListener('click', runNow);
 async function runNow() {
-  $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now'); $('log-box').hidden = false; $('log-box').open = true; $('results').hidden = true;
+  $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now'); resetResult(); summary(2, 'Running');
   const t0 = performance.now();
   try {
     const r = await ask('run', { cfg: cfg() }, m => line(m, 'now'));
@@ -190,8 +194,8 @@ async function runNow() {
     S.result = r; S.stale = false; S.sweep = null; S.runAt = new Date().toISOString();
     document.querySelector('[data-view="errors"]').disabled = false;
     render(r); drawMap(true);
-    $('results').hidden = false; $('exports').hidden = false; $('log-box').open = false; $('r-title').textContent = 'Result';
-  } catch (e) { line(e.message, 'err'); }
+    setLocks();
+  } catch (e) { line(e.message, 'err'); summary(2, 'Failed; see the message below'); }
   finally { $('run').disabled = !S.previewOk; }
 }
 
@@ -199,21 +203,26 @@ function render(r) {
   const a = r.random, b = r.spatial;
   $('r-sub').textContent = `${r.rows_used.toLocaleString('en-GB')} rows, ${r.classes.length} classes, ${r.config.features.length} predictors. Random Forest, ${r.config.model.n_estimators} trees, seed ${r.config.seed}.`;
   const drop = a.pooled.accuracy - b.pooled.accuracy;
-  $('figs').innerHTML = [
-    [pct(a.pooled.accuracy), `${a.design.includes('hold-out') ? 'random hold-out' : 'random folds'} accuracy`],
-    [pct(b.pooled.accuracy), `${r.config.block_km} km blocks accuracy`],
-    [`${drop >= 0 ? '−' : '+'}${Math.abs(drop * 100).toFixed(1)}`, 'points with spatial blocks'],
-    [`${km(a.median_test_to_train_m)} / ${km(b.median_test_to_train_m)}`, 'test to training, median'],
-  ].map(([v, u]) => `<div class="fig"><b class="num">${v}</b><span>${u}</span></div>`).join('');
+  $('r-title').textContent = S.name || 'Result';
+  summary(2, `Done: ${pct(a.pooled.accuracy)} random, ${pct(b.pooled.accuracy)} spatial`);
+  const k = [
+    [a.design.includes('hold-out') ? 'Random hold-out' : 'Random folds', pct(a.pooled.accuracy), `kappa ${num(a.pooled.kappa, 3)}, fold spread ±${pct(a.fold_accuracy_sd)}`],
+    [`Spatial blocks, ${r.config.block_km} km`, pct(b.pooled.accuracy), `kappa ${num(b.pooled.kappa, 3)}, fold spread ±${pct(b.fold_accuracy_sd)}`],
+    ['Difference', `${drop >= 0 ? '−' : '+'}${Math.abs(drop * 100).toFixed(1)}<small>points</small>`, drop >= 0 ? 'lower when whole blocks are held out' : 'higher when whole blocks are held out'],
+    ['Test to training', `${km(a.median_test_to_train_m)} / ${km(b.median_test_to_train_m)}`, 'median distance, random / spatial'],
+  ];
+  $('figs').classList.remove('empty');
+  $('figs').innerHTML = k.map(([l, v, d]) => `<div class="kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div><div class="d">${esc(d)}</div></div>`).join('');
+  $('c-folds').hidden = false; $('sweep').disabled = false;
   $('gap').innerHTML = `Accuracy is <strong>${pct(a.pooled.accuracy)}</strong> with random test points (median ${km(a.median_test_to_train_m)} from the nearest training point) and <strong>${pct(b.pooled.accuracy)}</strong> with whole ${r.config.block_km} km blocks held out (median ${km(b.median_test_to_train_m)}${r.config.buffer_km > 0 ? `, after a ${r.config.buffer_km} km buffer` : ''}): ${drop >= 0 ? `${(drop * 100).toFixed(1)} percentage points lower` : `${(-drop * 100).toFixed(1)} points higher`}. One seed; the folds also differ in class mix, so read the gap as an indication, not a precise estimate.`;
   const card = (m, title, tag) => `<div class="method"><h3>${title} <span class="tag">${tag}</span></h3><p class="design">${esc(m.design)}</p>
-    <div class="kpis">
-      <div class="kpi"><span class="v">${pct(m.pooled.accuracy)}</span><span class="u">overall accuracy${m.pooled.n < r.rows_used ? ` (${m.pooled.n} of ${r.rows_used} rows)` : ''}</span></div>
-      <div class="kpi"><span class="v">${num(m.pooled.macro.f1, 3)}</span><span class="u">macro F1</span></div>
-      <div class="kpi"><span class="v">${num(m.pooled.kappa, 3)}</span><span class="u">Cohen's kappa</span></div>
-      <div class="kpi"><span class="v">${m.per_fold.length > 1 ? '±' + pct(m.fold_accuracy_sd) : '—'}</span><span class="u">fold spread (SD)</span></div>
-      <div class="kpi"><span class="v">${km(m.median_test_to_train_m)}</span><span class="u">test to training (median)</span></div>
-      <div class="kpi"><span class="v">${num(m.pooled.weighted.f1, 3)}</span><span class="u">weighted F1</span></div>
+    <div class="mk">
+      <div class="mki"><span class="v">${pct(m.pooled.accuracy)}</span><span class="u">overall accuracy${m.pooled.n < r.rows_used ? ` (${m.pooled.n} of ${r.rows_used} rows)` : ''}</span></div>
+      <div class="mki"><span class="v">${num(m.pooled.macro.f1, 3)}</span><span class="u">macro F1</span></div>
+      <div class="mki"><span class="v">${num(m.pooled.kappa, 3)}</span><span class="u">Cohen's kappa</span></div>
+      <div class="mki"><span class="v">${m.per_fold.length > 1 ? '±' + pct(m.fold_accuracy_sd) : '—'}</span><span class="u">fold spread (SD)</span></div>
+      <div class="mki"><span class="v">${km(m.median_test_to_train_m)}</span><span class="u">test to training (median)</span></div>
+      <div class="mki"><span class="v">${num(m.pooled.weighted.f1, 3)}</span><span class="u">weighted F1</span></div>
     </div>${cmTable(m.confusion_matrix, r.classes)}${perClass(m, r.classes)}
     ${m.warnings.length ? `<p class="warn">${m.warnings.map(esc).join('<br>')}</p>` : ''}</div>`;
   $('compare').innerHTML = card(a, 'Random', 'A') + card(b, 'Spatial blocks', 'B');
@@ -233,27 +242,34 @@ function perClass(m, labels) {
 }
 
 // ---------------------------------------------------------------- charts
+// charts are drawn in CSS pixels at the panel's width, sharp on high-density screens
+function fitCanvas(c, h) {
+  const W = c.clientWidth || c.parentElement.clientWidth || 360, dpr = window.devicePixelRatio || 1;
+  c.width = Math.round(W * dpr); c.height = Math.round(h * dpr); c.style.height = `${h}px`;
+  const ctx = c.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return { ctx, W, H: h };
+}
 function axes(ctx, W, H, pad, lo, hi, xlabel) {
-  ctx.clearRect(0, 0, W, H); ctx.font = '12px "Geist Mono", monospace'; ctx.fillStyle = '#6a6963'; ctx.strokeStyle = '#e4e4e0';
+  ctx.clearRect(0, 0, W, H); ctx.font = '12px Satoshi, system-ui, sans-serif'; ctx.fillStyle = '#6e7681'; ctx.strokeStyle = '#e6e8eb'; ctx.lineWidth = 1;
   const Y = v => H - pad.b - (v - lo) / (hi - lo) * (H - pad.t - pad.b);
   for (let v = Math.ceil(lo * 20) / 20; v <= hi + 1e-9; v += 0.05) { ctx.beginPath(); ctx.moveTo(pad.l, Y(v)); ctx.lineTo(W - pad.r, Y(v)); ctx.stroke(); ctx.textAlign = 'right'; ctx.fillText(`${Math.round(v * 100)}%`, pad.l - 6, Y(v) + 4); }
   ctx.textAlign = 'center'; ctx.fillText(xlabel, (W + pad.l) / 2, H - 6); return Y;
 }
 function drawFolds(r) {
-  const c = $('c-folds'), ctx = c.getContext('2d'), W = c.width, H = c.height, pad = { l: 48, r: 16, t: 14, b: 40 };
+  const c = $('c-folds'), { ctx, W, H } = fitCanvas(c, 240), pad = { l: 40, r: 8, t: 12, b: 34 };
   const all = [...r.random.per_fold, ...r.spatial.per_fold].map(f => f.accuracy).concat([r.random.pooled.accuracy, r.spatial.pooled.accuracy]);
   const lo = Math.max(0, Math.floor((Math.min(...all) - 0.02) * 20) / 20), hi = Math.min(1, Math.ceil((Math.max(...all) + 0.01) * 20) / 20);
   const Y = axes(ctx, W, H, pad, lo, hi, '');
   [[r.random, 'Random', 0.3], [r.spatial, 'Spatial blocks', 0.7]].forEach(([m, name, fx]) => {
     const x = pad.l + fx * (W - pad.l - pad.r);
-    ctx.strokeStyle = '#141412'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - 50, Y(m.pooled.accuracy)); ctx.lineTo(x + 50, Y(m.pooled.accuracy)); ctx.stroke();
-    m.per_fold.forEach((f, i) => { ctx.fillStyle = FOLD_COLORS[f.fold % 10]; ctx.beginPath(); ctx.arc(x - 30 + (i / Math.max(1, m.per_fold.length - 1)) * 60, Y(f.accuracy), 5, 0, 7); ctx.fill(); });
-    ctx.fillStyle = '#141412'; ctx.font = '13px Satoshi, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(name, x, H - 18);
+    const half = Math.min(50, (W - pad.l - pad.r) * 0.2);
+    ctx.strokeStyle = '#15181c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - half, Y(m.pooled.accuracy)); ctx.lineTo(x + half, Y(m.pooled.accuracy)); ctx.stroke();
+    m.per_fold.forEach((f, i) => { ctx.fillStyle = FOLD_COLORS[f.fold % 10]; ctx.beginPath(); ctx.arc(x - half * 0.6 + (i / Math.max(1, m.per_fold.length - 1)) * half * 1.2, Y(f.accuracy), 4.5, 0, 7); ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#fff'; ctx.stroke(); });
+    ctx.fillStyle = '#15181c'; ctx.font = '500 13px Satoshi, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(name, x, H - 10);
   });
 }
 function drawSweep() {
-  const c = $('c-sweep'), ctx = c.getContext('2d'), W = c.width, H = c.height, pad = { l: 48, r: 16, t: 14, b: 40 };
-  if (!S.sweep) { ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#6a6963'; ctx.font = '13px Satoshi, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Run the sweep to see how accuracy changes with block size', W / 2, H / 2); return; }
+  const c = $('c-sweep'), { ctx, W, H } = fitCanvas(c, 240), pad = { l: 40, r: 8, t: 12, b: 40 };
+  if (!S.sweep) { ctx.clearRect(0, 0, W, H); ctx.fillStyle = '#6e7681'; ctx.font = '13px Satoshi, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(S.result ? 'Run the sweep to see how accuracy changes' : 'Compare the two designs first', W / 2, H / 2); return; }
   const rows = S.sweep.rows.filter(r => r.accuracy != null), base = S.result.random.pooled.accuracy;
   const all = rows.map(r => r.accuracy).concat([base]);
   const lo = Math.max(0, Math.floor((Math.min(...all) - 0.02) * 20) / 20), hi = Math.min(1, Math.ceil((Math.max(...all) + 0.01) * 20) / 20);
@@ -264,7 +280,7 @@ function drawSweep() {
   ctx.fillStyle = '#6a6963'; ctx.textAlign = 'left'; ctx.fillText(`random ${pct(base)}`, pad.l + 4, Y(base) - 6);
   ctx.strokeStyle = '#b4530a'; ctx.lineWidth = 2; ctx.beginPath(); rows.forEach((r, i) => i ? ctx.lineTo(X(r.block_km), Y(r.accuracy)) : ctx.moveTo(X(r.block_km), Y(r.accuracy))); ctx.stroke();
   ctx.fillStyle = '#b4530a'; rows.forEach(r => { ctx.beginPath(); ctx.arc(X(r.block_km), Y(r.accuracy), 4, 0, 7); ctx.fill(); });
-  ctx.fillStyle = '#141412'; ctx.textAlign = 'center'; S.sweep.rows.forEach(r => ctx.fillText(r.error ? `${r.block_km}*` : `${r.block_km}`, X(r.block_km), H - 24));
+  ctx.fillStyle = '#15181c'; ctx.textAlign = 'center'; S.sweep.rows.forEach(r => ctx.fillText(r.error ? `${r.block_km}*` : `${r.block_km}`, X(r.block_km), H - 22));
 }
 $('sweep').addEventListener('click', async () => {
   if (!S.result) return;
@@ -326,41 +342,51 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
 // ---------------------------------------------------------------- example
 $('demo').addEventListener('click', async () => {
   await loadSample();
-  if (S.meta && !$('run').disabled) { go(2); runNow(); }
+  if (S.meta && !$('run').disabled) { go(2); showTab('folds'); runNow(); }
 });
 
-// ---------------------------------------------------------------- steps, drawer, about
+// ---------------------------------------------------------------- steps (accordion in the rail), tabs, menu, about
 let step = 0;
-function updateNext() {
-  if (step === 0) $('next').disabled = !S.meta;
-  if (step === 1) $('next').disabled = !S.previewOk;
+function summary(k, t) { $(`sum-${k}`).textContent = t; }
+const reach = k => k === 0 || (k === 1 && !!S.meta) || (k === 2 && !!S.meta && !!S.previewOk);
+const complete = k => k === 0 ? !!S.meta : k === 1 ? !!S.previewOk : !!S.result;
+function setLocks() {
+  document.querySelectorAll('.step').forEach(el => { const k = +el.dataset.step; el.classList.toggle('locked', !reach(k)); el.classList.toggle('done', k !== step && complete(k)); });
 }
+function updateNext() { $('next-0').disabled = !S.meta; $('next-1').disabled = !S.previewOk; setLocks(); }
 function go(n) {
   step = n;
-  document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = +p.dataset.pane !== n; });
-  document.querySelectorAll('.dots button').forEach(b => {
-    const k = +b.dataset.step; if (k === n) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
-    b.classList.toggle('done', k < n);
+  document.querySelectorAll('.step').forEach(el => {
+    const k = +el.dataset.step, open = k === n;
+    el.classList.toggle('open', open); el.querySelector('[data-pane]').hidden = !open; el.querySelector('.step-h').setAttribute('aria-expanded', String(open));
   });
-  $('back').hidden = n === 0; $('next').hidden = n === 2; $('run').hidden = n !== 2;
   updateNext();
 }
-document.querySelectorAll('.dots button').forEach(b => b.addEventListener('click', () => {
-  const k = +b.dataset.step; if (k === 0 || (k === 1 && S.meta) || (k === 2 && S.previewOk)) go(k);
-}));
-$('back').addEventListener('click', () => go(step - 1));
-$('next').addEventListener('click', () => go(step + 1));
-$('more').addEventListener('click', () => {
-  const open = $('drawer-body').hidden; $('drawer-body').hidden = !open; $('more').setAttribute('aria-expanded', String(open)); $('more').textContent = open ? 'Hide' : 'Details';
-});
-document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
-  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', String(x === b)));
-  document.querySelectorAll('[data-tabpane]').forEach(p => { p.hidden = p.dataset.tabpane !== b.dataset.tab; });
-}));
-$('ctl-toggle').addEventListener('click', () => { const o = $('mapctl').classList.toggle('open'); $('ctl-toggle').setAttribute('aria-expanded', String(o)); });
+function resetResult() {
+  $('figs').classList.add('empty');
+  $('figs').querySelectorAll('.v').forEach(v => { v.textContent = '–'; });
+  $('c-folds').hidden = true; $('sweep').disabled = true;
+  $('gap').textContent = 'Compare the two designs to see how much the score depends on test points sitting next to training points.';
+  $('compare').innerHTML = '<p class="empty-state">Metrics appear after a comparison.</p>';
+  $('r-title').textContent = S.name || 'Random against spatial validation';
+  $('r-sub').textContent = S.meta ? `${S.meta.rows.toLocaleString('en-GB')} rows, ${S.meta.columns.length} columns` : 'Would your classifier score as well somewhere new? Same model, two ways of choosing test points.';
+}
+document.querySelectorAll('.step-h').forEach(h => h.addEventListener('click', () => { const k = +h.parentElement.dataset.step; if (reach(k)) go(k); }));
+$('next-0').addEventListener('click', () => go(1));
+$('next-1').addEventListener('click', () => go(2));
+function showTab(t) {
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', String(x.dataset.tab === t)));
+  document.querySelectorAll('[data-tabpane]').forEach(p => { p.hidden = p.dataset.tabpane !== t; });
+  if (S.result && t === 'folds') drawFolds(S.result);
+  if (t === 'sweep') drawSweep();
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+window.addEventListener('resize', () => { if (S.result) { drawFolds(S.result); drawSweep(); } });
+$('dl-menu').addEventListener('toggle', () => { if ($('dl-menu').open && !S.result) { $('dl-menu').open = false; $('r-sub').textContent = 'Compare the two designs first; downloads are made from the result.'; } });
+document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => { $('dl-menu').open = false; }));
+document.addEventListener('click', e => { if ($('dl-menu').open && !$('dl-menu').contains(e.target)) $('dl-menu').open = false; });
 $('about-open').addEventListener('click', () => { $('about').hidden = false; $('about-close').focus(); });
 $('about-close').addEventListener('click', () => { $('about').hidden = true; $('about-open').focus(); });
 $('about').addEventListener('click', e => { if (e.target === $('about')) $('about').hidden = true; });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('about').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('about').hidden = true; $('dl-menu').open = false; } });
 go(0);
-ask('init', {}, m => info(esc(m))).then(() => info('Python engine ready. Load the sample or a file.')).catch(e => info(`The Python engine could not start: ${e.message}`, true));

@@ -48,4 +48,14 @@ fj = pd.DataFrame({"lon": ((lon + 180) % 360) - 180, "lat": rng.uniform(-18, -17
 pv = gv.fold_preview(fj, {"target": "y", "x": "lon", "y": "lat", "features": ["a"], "crs": "EPSG:4326", "k": 5, "seed": 42, "block_km": 10})
 span = max(max(c[0] for c in f["geometry"]["coordinates"][0]) - min(c[0] for c in f["geometry"]["coordinates"][0]) for f in pv["blocks"]["features"])
 check("block outlines across the 180 degree meridian stay compact", span < 1, f"widest block spans {span:.3f} degrees of longitude")
+# unreadable or unsuitable files get plain-language messages
+def msg(text, kind):
+    try: gv.read_table(text, kind); return ""
+    except ValueError as e: return str(e)
+check("broken GeoJSON is reported as not valid JSON", "not valid GeoJSON" in msg("not json", "geojson"))
+poly = json.dumps({"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]]}, "properties": {"c": "a"}}]})
+check("a GeoJSON with no point features asks for points", "needs point features" in msg(poly, "geojson"), msg(poly, "geojson"))
+check("an empty CSV is reported as empty", "empty" in msg("", "csv"))
+one = gv.inspect(df.assign(lon=df["lon"].where(df.index != 0)), "y", "lon", "lat", ["a"], "EPSG:4326")
+check("one missing coordinate reads as one row, not one rows", any(p.startswith("1 row without") for p in one["problems"]), "; ".join(one["problems"])[:120])
 print(f"{fails} FAILED" if fails else "ALL PASSED"); sys.exit(1 if fails else 0)

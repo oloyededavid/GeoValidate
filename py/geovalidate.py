@@ -49,12 +49,20 @@ def to_json(obj) -> str:
 def read_table(text: str, kind: str) -> pd.DataFrame:
     """Parse CSV text or a GeoJSON FeatureCollection of points into a DataFrame. GeoJSON points become columns lon, lat."""
     if kind == "csv":
-        df = pd.read_csv(io.StringIO(text), low_memory=False)
+        try:
+            df = pd.read_csv(io.StringIO(text), low_memory=False)
+        except pd.errors.EmptyDataError:
+            raise ValueError("The file is empty")
+        except (pd.errors.ParserError, UnicodeDecodeError) as e:
+            raise ValueError(f"The file could not be read as CSV ({str(e).splitlines()[0][:120]}). Check that it is comma-separated with one header row")
     elif kind == "geojson":
-        gj = json.loads(text)
-        if gj.get("type") != "FeatureCollection":
-            raise ValueError("GeoJSON must be a FeatureCollection")
-        rows = []
+        try:
+            gj = json.loads(text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"The file is not valid GeoJSON: it could not be read as JSON (line {e.lineno}, column {e.colno})")
+        if not isinstance(gj, dict) or gj.get("type") != "FeatureCollection":
+            raise ValueError("GeoJSON must be a FeatureCollection of point features")
+        rows, other = [], {}
         for i, f in enumerate(gj.get("features", [])):
             g = f.get("geometry") or {}
             props = dict(f.get("properties") or {})
@@ -62,7 +70,11 @@ def read_table(text: str, kind: str) -> pd.DataFrame:
                 props["lon"], props["lat"] = g["coordinates"][0], g["coordinates"][1]
             else:
                 props["lon"], props["lat"] = None, None   # reported as invalid geometry by inspect()
+                t = g.get("type") or "no geometry"; other[t] = other.get(t, 0) + 1
             rows.append(props)
+        if rows and sum(other.values()) == len(rows):
+            kinds = ", ".join(f"{n:,} {t}" for t, n in other.items())
+            raise ValueError(f"GeoValidate needs point features, and this file has none ({kinds}). Convert the features to points first, for example to their centroids")
         df = pd.DataFrame(rows)
     else:
         raise ValueError(f"Unsupported file type: {kind}")
@@ -138,13 +150,14 @@ def inspect(df: pd.DataFrame, target: str, x: str, y: str, features: list[str], 
         feats.append(info)
     imbalance = float(classes.max() / classes.min()) if classes.size > 1 else None
     problems = []
-    if missing_xy: problems.append(f"{missing_xy} rows without coordinates will be left out")
-    if bad_xy: problems.append(f"{bad_xy} rows have longitude or latitude out of range and will be left out")
-    if missing_target: problems.append(f"{missing_target} rows without a target value will be left out")
+    rows_ = lambda n: f"{n:,} row" + ("" if n == 1 else "s")
+    if missing_xy: problems.append(f"{rows_(missing_xy)} without point coordinates will be left out")
+    if bad_xy: problems.append(f"{rows_(bad_xy)} with longitude or latitude out of range will be left out")
+    if missing_target: problems.append(f"{rows_(missing_target)} without a target value will be left out")
     if classes.size < 2: problems.append("the target has fewer than two classes")
     if classes.size > 50: problems.append(f"the target has {classes.size} classes; is it a continuous variable?")
-    if dup_rows: problems.append(f"{dup_rows} rows are exact duplicates; duplicates split across training and test inflate accuracy")
-    if dup_xy: problems.append(f"{dup_xy} rows share a location with an earlier row")
+    if dup_rows: problems.append(f"{rows_(dup_rows)} {'is an exact duplicate' if dup_rows == 1 else 'are exact duplicates'}; duplicates split across training and test inflate accuracy")
+    if dup_xy: problems.append(f"{rows_(dup_xy)} {'shares' if dup_xy == 1 else 'share'} a location with an earlier row")
     if imbalance and imbalance > 10: problems.append(f"the largest class is {imbalance:.0f} times the smallest; macro averages weigh classes equally")
     if not features: problems.append("no predictors selected")
     if crs == "EPSG:4326":

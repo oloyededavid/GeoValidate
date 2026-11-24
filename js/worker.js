@@ -1,22 +1,51 @@
-/* GeoValidate worker: runs py/geovalidate.py in Pyodide 0.26.4 (scikit-learn 1.4.2). The page only displays what this returns. */
+/* GeoValidate worker: runs py/geovalidate.py in Pyodide 0.26.4 (scikit-learn 1.4.2). The page only displays what this returns.
+   The engine starts in four reported stages. If a stage fails the worker answers with an error flagged `engine: true` and a message
+   that names the stage, and it forgets the failed attempt so the page's Try again button can start over. */
 const PYODIDE = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
-importScripts(PYODIDE + 'pyodide.js');
+const PACKAGES = ['numpy', 'pandas', 'scipy', 'scikit-learn', 'pyproj'];
 let py = null, ready = null;
 const send = (type, data) => self.postMessage({ type, ...data });
+
+class EngineError extends Error {}
+const STAGES = 4;
+const stage = (id, n, msg, frac) => send('progress', { id, msg, stage: n, stages: STAGES, frac });
+const why = e => String((e && e.message) || e).split('\n')[0].slice(0, 160);
 
 async function init(id) {
   if (ready) return ready;
   ready = (async () => {
-    send('progress', { id, msg: 'Loading Python (Pyodide 0.26.4)' });
-    py = await loadPyodide({ indexURL: PYODIDE });
-    send('progress', { id, msg: 'Loading NumPy, pandas, SciPy, scikit-learn and pyproj' });
-    await py.loadPackage(['numpy', 'pandas', 'scipy', 'scikit-learn', 'pyproj']);
-    const src = await (await fetch(new URL('../py/geovalidate.py', self.location.href))).text();
-    py.FS.writeFile('/home/pyodide/geovalidate.py', src);
-    await py.runPythonAsync(`import sys, json; sys.path.insert(0, '/home/pyodide'); import geovalidate as gv; DF = None`);
-    const v = JSON.parse(await py.runPythonAsync(`json.dumps({'engine': gv.VERSION, 'sklearn': gv.SKLEARN_VERSION})`));
-    send('progress', { id, msg: `Engine ready: GeoValidate ${v.engine}, scikit-learn ${v.sklearn}` });
-    return v;
+    try {
+      stage(id, 1, 'Downloading the Python runtime (Pyodide 0.26.4)', 0.03);
+      try { importScripts(PYODIDE + 'pyodide.js'); }
+      catch (e) { throw new EngineError(`The Python runtime could not be downloaded from cdn.jsdelivr.net (${why(e)}). Check your internet connection, or whether a network filter blocks that address, then try again.`); }
+      try { py = await loadPyodide({ indexURL: PYODIDE }); }
+      catch (e) { throw new EngineError(`The Python runtime was downloaded but did not start (${why(e)}). Try again.`); }
+
+      // packages: the bulk of the download (about 36 MB in total). Pyodide reports "Loading a, b" then "Loaded a, b"; the bar follows the count of packages loaded
+      let total = PACKAGES.length, loaded = 0;
+      stage(id, 2, `Downloading Python packages: ${PACKAGES.join(', ')} (about 36 MB in total)`, 0.25);
+      try {
+        await py.loadPackage(PACKAGES, {
+          messageCallback: m => {
+            const g = /^Loading (.+)$/.exec(m), d = /^Loaded (.+)$/.exec(m);
+            if (g) total = Math.max(total, g[1].split(',').length);
+            if (d) { loaded += d[1].split(',').length; stage(id, 2, `Downloaded ${Math.min(loaded, total)} of ${total} packages (${d[1].trim()})`, 0.25 + 0.6 * Math.min(1, loaded / total)); }
+          },
+          errorCallback: () => {},
+        });
+      } catch (e) { throw new EngineError(`The Python packages (NumPy, pandas, SciPy, scikit-learn, pyproj) could not be downloaded (${why(e)}). Check your internet connection and try again.`); }
+
+      stage(id, 3, 'Loading the GeoValidate engine', 0.9);
+      try {
+        const r = await fetch(new URL('../py/geovalidate.py', self.location.href));
+        if (!r.ok) throw new Error(`py/geovalidate.py answered ${r.status}`);
+        py.FS.writeFile('/home/pyodide/geovalidate.py', await r.text());
+        await py.runPythonAsync(`import sys, json; sys.path.insert(0, '/home/pyodide'); import geovalidate as gv; DF = None`);
+      } catch (e) { throw new EngineError(`The GeoValidate engine could not be loaded (${why(e)}). Reload the page and try again.`); }
+      const v = JSON.parse(await py.runPythonAsync(`json.dumps({'engine': gv.VERSION, 'sklearn': gv.SKLEARN_VERSION})`));
+      stage(id, 4, `Engine ready: GeoValidate ${v.engine}, scikit-learn ${v.sklearn}`, 1);
+      return v;
+    } catch (e) { ready = null; py = null; throw e; }   // forget the failed attempt so a retry starts clean
   })();
   return ready;
 }
@@ -51,6 +80,6 @@ json.dumps({'columns': list(DF.columns), 'rows': len(DF), 'guess': gv.guess_colu
     send('done', { id, out });
   } catch (e) {
     const msg = String(e && e.message || e), last = msg.trim().split('\n').filter(Boolean).pop();
-    send('error', { id, message: last && last.includes('Error:') ? last.slice(last.indexOf('Error:') + 7) : msg });
+    send('error', { id, engine: e instanceof EngineError, message: e instanceof EngineError ? e.message : last && last.includes('Error:') ? last.slice(last.indexOf('Error:') + 7) : msg });
   }
 };

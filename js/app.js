@@ -7,6 +7,8 @@ const km = m => m == null || !(m === m) ? '—' : m >= 1000 ? `${(m / 1000).toFi
 const BLOCKS = [0.5, 1, 2, 3, 5, 7.5, 10, 15, 20, 30, 50, 75, 100];
 const FOLD_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'];
 const CLASS_COLORS = ['#1b7837', '#a6d96a', '#e6c84b', '#c0392b', '#2c7fb8', '#7b3294', '#e08214', '#878787', '#35978f', '#f781bf'];
+import { VERSION } from './version.js';
+document.querySelectorAll('[data-ver]').forEach(e => { e.textContent = VERSION; });
 const MAX_BYTES = 20 * 1024 * 1024;
 
 // ---------------------------------------------------------------- worker
@@ -14,19 +16,30 @@ const worker = new Worker(new URL('./worker.js', import.meta.url));
 let seq = 0; const pending = new Map();
 worker.onmessage = ({ data }) => {
   const p = pending.get(data.id); if (!p) return;
-  if (data.type === 'progress') { p.onProgress && p.onProgress(data.msg); return; }
-  pending.delete(data.id); data.type === 'error' ? p.reject(new Error(data.message)) : p.resolve(data.out);
+  if (data.type === 'progress') { p.onProgress && p.onProgress(data.msg, data); return; }
+  pending.delete(data.id);
+  if (data.type === 'error') { const err = new Error(data.message); err.engine = !!data.engine; p.reject(err); } else p.resolve(data.out);
+};
+worker.onerror = e => {   // the worker script itself failed to load or crashed: fail every waiting request with a message
+  const err = new Error(`The analysis engine stopped (${e.message || 'script error'}). Reload the page and try again.`); err.engine = true;
+  for (const [id, p] of pending) { pending.delete(id); p.reject(err); }
 };
 const ask = (cmd, payload = {}, onProgress) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject, onProgress }); worker.postMessage({ cmd, id, ...payload }); });
 const log = $('log');
-const line = (msg, cls = '') => {
+const line = (msg, cls = '', frac) => {
   log.querySelectorAll('li.now').forEach(l => l.classList.remove('now')); const li = document.createElement('li'); li.textContent = msg; if (cls) li.className = cls; log.append(li);
   $('status').hidden = false; $('msg').textContent = msg; $('msg').className = cls === 'err' ? 'msg err' : 'msg';
-  $('bar').style.width = /^Done/.test(msg) ? '100%' : `${Math.min(92, log.children.length * 8)}%`;
+  // engine start-up reports its own fraction (stages and packages downloaded); analysis steps advance by count
+  $('bar').style.width = /^Done/.test(msg) ? '100%' : typeof frac === 'number' ? `${Math.round(100 * frac)}%` : `${Math.min(92, log.children.length * 8)}%`;
 };
 
 // ---------------------------------------------------------------- map
 const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/positron', center: [0, 15], zoom: 1.3, attributionControl: false, preserveDrawingBuffer: true });
+// if the basemap style cannot be fetched (host down, blocked network) fall back to a plain background so the tool still works
+const FALLBACK_STYLE = { version: 8, sources: {}, layers: [{ id: 'background', type: 'background', paint: { 'background-color': '#e9ecef' } }] };
+let styleFallback = false;
+map.on('error', e => { if (styleFallback || map.isStyleLoaded() || (e && e.sourceId)) return; styleFallback = true; $('mapnote').hidden = false; map.setStyle(FALLBACK_STYLE); });
+function showLegend() { const L = $('legend'); L.hidden = false; if (!L.dataset.init) { L.dataset.init = '1'; L.open = !window.matchMedia('(max-width: 860px)').matches; } return $('legend-body'); }
 map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
@@ -75,7 +88,7 @@ function info(msg, bad) { $('data-info').innerHTML = bad ? `<span style="color:v
 async function load(text, name, kind) {
   info('Starting the Python engine…'); log.innerHTML = '';
   try {
-    const meta = await ask('load', { text, kind }, m => { info(esc(m)); line(m, 'now'); });
+    const meta = await ask('load', { text, kind }, (m, d) => { info(esc(m)); line(m, 'now', d && d.frac); });
     log.querySelectorAll('li.now').forEach(l => l.classList.remove('now'));
     Object.assign(S, { text, name, kind, meta, result: null, preview: null, previewOk: false, sweep: null, stale: false, view: 'folds' }); resetResult();
     document.querySelector('[data-view="errors"]').disabled = true;
@@ -84,7 +97,14 @@ async function load(text, name, kind) {
     info(`<strong>${esc(name)}</strong> · ${meta.rows.toLocaleString('en-GB')} rows · ${meta.columns.length} columns · SHA-256 ${meta.sha256.slice(0, 12)}…`);
     await fillColumns(meta);
     if (step === 0) go(1);
-  } catch (e) { info(e.message, true); }
+  } catch (e) {
+    info(e.message, true);
+    if (e.engine) {   // the engine did not start: offer to try again with the same file, without asking for it again
+      line(e.message, 'err');
+      $('data-info').insertAdjacentHTML('beforeend', ' <button class="rb" type="button" id="retry">Try again</button>');
+      $('retry').addEventListener('click', () => load(text, name, kind), { once: true });
+    }
+  }
   updateNext();
 }
 function fillColumns(meta) {
@@ -177,7 +197,7 @@ async function drawMap(fit) {
     const xs = lonlat.map(c => lon0 + ((c[0] - lon0 + 540) % 360) - 180), ys = lonlat.map(c => c[1]);
     map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: { top: 60, bottom: 40, left: 40, right: 40 }, duration: 700 }); fitted = key;
   }
-  const L = $('legend'); L.hidden = false;
+  const L = showLegend();
   const k = Math.max(...spFolds) + 1;
   const sw = (c, t) => `<div class="sw"><i style="background:${c}"></i>${t}</div>`;
   L.innerHTML = S.view === 'class' ? classes.map((c, i) => sw(CLASS_COLORS[i % 10], esc(c))).join('')
@@ -197,7 +217,7 @@ async function runNow() {
     line(`Done in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
     S.result = r; S.stale = false; S.sweep = null; S.runAt = new Date().toISOString();
     document.querySelector('[data-view="errors"]').disabled = false;
-    render(r); drawMap(true);
+    render(r); drawMap(true); syncExports();
     setLocks(); if (window.innerWidth <= 860) document.querySelector('.main').scrollIntoView({ behavior: 'smooth' });
   } catch (e) { line(e.message, 'err'); summary(2, 'Failed; see the message below'); }
   finally { $('run').disabled = !S.previewOk || cfg().crs === 'EPSG:'; }
@@ -371,7 +391,14 @@ function go(n) {
   });
   updateNext();
 }
+// Download items are disabled until a result exists
+function syncExports() {
+  const has = !!S.result;
+  document.querySelectorAll('[data-export]').forEach(b => { b.disabled = !has; });
+  $('dl-note').hidden = has;
+}
 function resetResult() {
+  syncExports();
   $('figs').classList.add('empty');
   $('figs').querySelectorAll('.v').forEach(v => { v.textContent = '–'; });
   $('c-folds').hidden = true; $('sweep').disabled = true;
@@ -400,11 +427,17 @@ tabBtns.forEach(b => {
   });
 });
 window.addEventListener('resize', () => { if (S.result) { drawFolds(S.result); drawSweep(); } });
-$('dl-menu').addEventListener('toggle', () => { if ($('dl-menu').open && !S.result) { $('dl-menu').open = false; $('r-sub').textContent = 'Compare the two designs first; downloads are made from the result.'; } });
 document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', () => { $('dl-menu').open = false; }));
 document.addEventListener('click', e => { if ($('dl-menu').open && !$('dl-menu').contains(e.target)) $('dl-menu').open = false; });
-$('about-open').addEventListener('click', () => { $('about').hidden = false; $('about-close').focus(); });
-$('about-close').addEventListener('click', () => { $('about').hidden = true; $('about-open').focus(); });
-$('about').addEventListener('click', e => { if (e.target === $('about')) $('about').hidden = true; });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('about').hidden = true; $('dl-menu').open = false; } });
+const aboutOpen = () => { $('about').hidden = false; $('about-close').focus(); }, aboutClose = () => { $('about').hidden = true; $('about-open').focus(); };
+$('about-open').addEventListener('click', aboutOpen);
+$('about-close').addEventListener('click', aboutClose);
+$('about').addEventListener('click', e => { if (e.target === $('about')) aboutClose(); });
+$('about').addEventListener('keydown', e => {   // keep Tab inside the open dialog
+  if (e.key !== 'Tab') return;
+  const f = [...$('about').querySelectorAll('a[href], button:not([disabled])')], first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (!$('about').hidden) aboutClose(); $('dl-menu').open = false; } });
+syncExports();
 go(0);

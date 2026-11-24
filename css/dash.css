@@ -239,3 +239,10 @@ table.t td.n, table.t th.n { text-align: right; }
 label.f:has(> input[type=range]) { grid-template-columns: 1fr auto; }
 label.f:has(> input[type=range]) > input[type=range] { grid-column: 1 / -1; }
 label.f > output { justify-self: end; }
+
+/* About: a plain summary above the technical tables */
+.plain { margin: 6px 0 18px; padding: 14px 18px; background: var(--accent-soft, #f1f4f8); border-radius: var(--r); }
+.plain h3 { margin: 0 0 6px; }
+.plain ul { margin: 0; padding-left: 18px; }
+.plain li { margin: 4px 0; line-height: 1.5; }
+.plain b { font-weight: 600; }

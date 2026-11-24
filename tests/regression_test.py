@@ -58,4 +58,6 @@ check("a GeoJSON with no point features asks for points", "needs point features"
 check("an empty CSV is reported as empty", "empty" in msg("", "csv"))
 one = gv.inspect(df.assign(lon=df["lon"].where(df.index != 0)), "y", "lon", "lat", ["a"], "EPSG:4326")
 check("one missing coordinate reads as one row, not one rows", any(p.startswith("1 row without") for p in one["problems"]), "; ".join(one["problems"])[:120])
+bad = msg('a,b\n1,"open quote\n2,3\n', "csv")
+check("a CSV with an unclosed quote gets a plain message, not parser text", "could not be read as CSV" in bad and "tokenizing" not in bad, bad)
 print(f"{fails} FAILED" if fails else "ALL PASSED"); sys.exit(1 if fails else 0)

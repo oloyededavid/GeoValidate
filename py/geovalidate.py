@@ -53,8 +53,12 @@ def read_table(text: str, kind: str) -> pd.DataFrame:
             df = pd.read_csv(io.StringIO(text), low_memory=False)
         except pd.errors.EmptyDataError:
             raise ValueError("The file is empty")
-        except (pd.errors.ParserError, UnicodeDecodeError) as e:
-            raise ValueError(f"The file could not be read as CSV ({str(e).splitlines()[0][:120]}). Check that it is comma-separated with one header row")
+        except UnicodeDecodeError:
+            raise ValueError("The file could not be read as text. Save it as a UTF-8 CSV and try again")
+        except pd.errors.ParserError as e:
+            m = re.search(r"line (\d+)", str(e))
+            where = f" near line {m.group(1)}" if m else ""
+            raise ValueError(f"The file could not be read as CSV{where}. Check that it is comma-separated, has one header row and that every quote is closed")
     elif kind == "geojson":
         try:
             gj = json.loads(text)

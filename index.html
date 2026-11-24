@@ -158,15 +158,23 @@
     <button class="hb x" id="about-close" type="button">Close</button>
     <h2 id="about-h">About GeoValidate</h2>
     <p>Nearby places look alike. With random folds, test points usually sit next to training points, so the score describes places like the training data. GeoValidate trains the same Random Forest twice on your points, once with random folds and once with whole blocks of territory held out, and shows both scores with the distance between test and training points. Everything runs in your browser with scikit-learn (Pyodide); files are never uploaded.</p>
+    <div class="plain"><h3>In short</h3><ul><li><b>What it uses:</b> your own labelled points, in a CSV or GeoJSON file, which never leave your computer.</li><li><b>What it does:</b> trains the same classifier twice, once testing on random points and once testing on whole areas it has not seen.</li><li><b>What it shows:</b> whether accuracy drops when the test points are far from the training points.</li><li><b>What it cannot do:</b> measure the accuracy of a map; that needs an independent, randomly sampled reference set.</li></ul></div>
     <h3>Method</h3>
     <table>
       <tr><td>Random k-fold</td><td>Points split into k folds stratified by class.</td></tr>
       <tr><td>Spatial block k-fold</td><td>A grid of square blocks; whole blocks go to folds, largest first to the fold with the fewest points, after shuffling with the seed. A block's points are never split between training and test.</td></tr>
       <tr><td>Model</td><td>Per fold, a fresh pipeline: median imputation of numeric predictors, most-frequent imputation and one-hot encoding of categorical ones, then a Random Forest, all fitted on that fold's training rows only. Both designs use the same pipeline, settings and seed.</td></tr>
-      <tr><td>Distances</td><td>Lon/lat are projected with an azimuthal equidistant projection centred on the data (circular mean of longitude, so data across the 180° meridian work), so block sizes and buffers are in metres. The median distance from test points to the nearest training point is reported for each design.</td></tr>
-      <tr><td>Metrics</td><td>Overall accuracy, Cohen's kappa, per-class precision, recall and F1 with macro and weighted averages, over all out-of-fold predictions. Fold spread is the SD of fold accuracy.</td></tr>
+      <tr><td>Distances</td><td>Lon/lat are converted to metres with a map projection centred on the data (azimuthal equidistant, which keeps distances from the centre true) (circular mean of longitude, so data across the 180° meridian work), so block sizes and buffers are in metres. The median distance from test points to the nearest training point is reported for each design.</td></tr>
+      <tr><td>Metrics</td><td>Overall accuracy, Cohen's kappa (agreement beyond what chance would give), per-class precision, recall and F1 with macro and weighted averages, over all out-of-fold predictions. Fold spread is the SD of fold accuracy.</td></tr>
       <tr><td>Buffer</td><td>Optionally removes training points within a distance of any test point in each fold.</td></tr>
       <tr><td>Checks</td><td>Missing or out-of-range coordinates and targets, duplicates, class imbalance, constant or identifier-like columns, coordinates used as predictors, predictors whose values each map to one class, and data spread so widely that block sizes become approximate. Problems are reported; data are not changed silently.</td></tr>
+    </table>
+    <h3>Data</h3>
+    <table>
+      <tr><td>Your file</td><td>CSV or GeoJSON points, up to 20 MB and 50,000 rows, read in the browser. Nothing is uploaded.</td></tr>
+      <tr><td>Sample</td><td>5,000 points from the Mau Forest study, Kenya: 5 land-cover classes and 16 Sentinel-2 and terrain predictors. CC BY 4.0; contains modified Copernicus Sentinel-2 data.</td></tr>
+      <tr><td>Software</td><td>Pyodide 0.26.4 with scikit-learn 1.4.2, NumPy, pandas, SciPy and pyproj, downloaded from jsDelivr on first use (about 36 MB).</td></tr>
+      <tr><td>Basemap</td><td>OpenFreeMap (© OpenStreetMap contributors).</td></tr>
     </table>
     <h3>Limits</h3>
     <ul>

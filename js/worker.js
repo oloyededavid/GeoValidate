@@ -13,7 +13,9 @@ const why = e => String((e && e.message) || e).split('\n')[0].slice(0, 160);
 
 async function init(id) {
   if (ready) return ready;
-  ready = (async () => {
+  // the promise is held in a local first: a stage that fails synchronously (importScripts) must not leave a stale
+  // rejected promise in `ready`, or Try again would return the old failure without retrying
+  const attempt = (async () => {
     try {
       stage(id, 1, 'Downloading the Python runtime (Pyodide 0.26.4)', 0.03);
       try { importScripts(PYODIDE + 'pyodide.js'); }
@@ -45,9 +47,11 @@ async function init(id) {
       const v = JSON.parse(await py.runPythonAsync(`json.dumps({'engine': gv.VERSION, 'sklearn': gv.SKLEARN_VERSION})`));
       stage(id, 4, `Engine ready: GeoValidate ${v.engine}, scikit-learn ${v.sklearn}`, 1);
       return v;
-    } catch (e) { ready = null; py = null; throw e; }   // forget the failed attempt so a retry starts clean
+    } catch (e) { py = null; throw e; }
   })();
-  return ready;
+  ready = attempt;
+  attempt.catch(() => { if (ready === attempt) ready = null; });   // forget the failed attempt so a retry starts clean
+  return attempt;
 }
 
 async function call(code, vars = {}) {

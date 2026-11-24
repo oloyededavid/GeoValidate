@@ -46,7 +46,7 @@ See [docs/test-report.md](docs/test-report.md). The method is in [docs/methodolo
 |---|---|
 | `py/geovalidate.py` | The engine: loading, checks, folds, pipeline, metrics, sweep |
 | `js/worker.js` | Loads Pyodide 0.26.4 (from jsDelivr) and runs the engine |
-| `js/app.js`, `index.html`, `css/app.css` | Interface |
+| `js/app.js`, `js/version.js`, `index.html`, `css/dash.css` (shared with FloodScope and AgroSignal), `css/geovalidate.css` | Interface |
 | `data/sample_mau_forest.csv` | Sample (CC BY 4.0; contains modified Copernicus Sentinel-2 data) |
 | `tests/pyodide_run.mjs` | Runs the engine in Pyodide under Node |
 | `tests/verify.py` | Independent checks of a result |

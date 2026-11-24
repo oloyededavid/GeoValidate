@@ -6,6 +6,13 @@
 <title>GeoValidate</title>
 <meta name="description" content="Compare random and spatial block cross-validation of a Random Forest classifier on your own point data, with scikit-learn running in your browser. Your data never leave your computer.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:title" content="GeoValidate">
+<meta property="og:description" content="Compare random and spatial block cross-validation of a Random Forest classifier on your own point data, with scikit-learn running in your browser. Your data never leave your computer.">
+<meta property="og:image" content="https://oloyededavid.github.io/geospatial-rs-portfolio/assets/tools/geovalidate-1200.webp">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="900">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="vendor/maplibre-gl.css">
 <link rel="stylesheet" href="css/dash.css">
 <link rel="stylesheet" href="css/geovalidate.css">
@@ -13,9 +20,14 @@
 <script src="vendor/maplibre-gl.js"></script>
 </head>
 <body>
+<header class="topbar">
+  <a class="back" href="https://oloyededavid.github.io/geospatial-rs-portfolio/#studies"><span aria-hidden="true">&larr;</span> Back to portfolio</a>
+  <span class="tb-title">GeoValidate</span>
+  <span class="ver">v<span data-ver></span></span>
+  <button class="hb" id="about-open" type="button" aria-haspopup="dialog">About and method</button>
+</header>
 <div class="app">
   <aside class="rail" aria-label="Analysis steps">
-    <a class="brand" href="./"><i></i><b>GeoValidate</b></a>
     <div class="steps">
       <section class="step open" data-step="0">
         <button class="step-h" type="button" aria-expanded="true"><span class="n">1</span><span class="t">Data</span><span class="s" id="sum-0">Labelled points, CSV or GeoJSON</span></button>
@@ -82,15 +94,15 @@
       <details class="menu" id="dl-menu">
         <summary class="hb" id="dl-btn">Download</summary>
         <div class="menu-list">
-          <button type="button" data-export="eval">Evaluation<span>CSV, overall and per fold</span></button>
-          <button type="button" data-export="folds">Fold assignments<span>CSV, one row per point</span></button>
-          <button type="button" data-export="geojson">Fold map<span>GeoJSON points and blocks</span></button>
-          <button type="button" data-export="config">Configuration<span>JSON with versions and file hash</span></button>
-          <button type="button" data-export="png">Charts<span>PNG</span></button>
-          <button type="button" data-export="pdf">Report<span>Print or save as PDF</span></button>
+          <p class="menu-note" id="dl-note">Downloads are available once a result exists.</p>
+          <button type="button" disabled data-export="eval">Evaluation<span>CSV, overall and per fold</span></button>
+          <button type="button" disabled data-export="folds">Fold assignments<span>CSV, one row per point</span></button>
+          <button type="button" disabled data-export="geojson">Fold map<span>GeoJSON points and blocks</span></button>
+          <button type="button" disabled data-export="config">Configuration<span>JSON with versions and file hash</span></button>
+          <button type="button" disabled data-export="png">Charts<span>PNG</span></button>
+          <button type="button" disabled data-export="pdf">Report<span>Print or save as PDF</span></button>
         </div>
       </details>
-      <button class="hb" id="about-open" type="button">About</button>
     </header>
 
     <section class="kpis empty" id="figs" aria-label="Key figures">
@@ -103,6 +115,7 @@
     <div class="body">
       <div class="mapwrap">
         <div id="map" role="region" aria-label="Map of the points and folds"></div>
+        <p class="mapnote" id="mapnote" role="status" hidden>The basemap could not be loaded. The analysis still works; only the background map is missing.</p>
         <div class="mapbar">
           <fieldset class="seg" id="views" hidden>
             <legend class="vh">Map view</legend>
@@ -112,7 +125,7 @@
             <label><input type="radio" name="view" data-view="errors" disabled>Errors</label>
           </fieldset>
         </div>
-        <div class="legend" id="legend" hidden></div>
+        <details class="legend" id="legend" hidden open><summary>Legend</summary><div id="legend-body"></div></details>
       </div>
 
       <section class="panel" aria-label="Evidence">
@@ -163,7 +176,7 @@
       <li>Classification only, Random Forest only, up to 50,000 rows, one thread. The first run downloads about 36 MB of Python packages.</li>
       <li>The sample comes from the Mau Forest study; its labels are cells where two land-cover maps agree. It is easy to classify, so its scores are optimistic about real map accuracy.</li>
     </ul>
-    <p class="small">GeoValidate v1.0.0. Full methodology and tests in the <a href="https://github.com/oloyededavid/GeoValidate">repository</a>. Code MIT; sample data CC BY 4.0 (contains modified Copernicus Sentinel-2 data). Basemap © OpenStreetMap contributors, OpenFreeMap.</p>
+    <p class="small">GeoValidate v<span data-ver></span>. Full methodology and tests in the <a href="https://github.com/oloyededavid/GeoValidate">repository</a>. Code MIT; sample data CC BY 4.0 (contains modified Copernicus Sentinel-2 data). Basemap © OpenStreetMap contributors, OpenFreeMap.</p>
   </article>
 </div>
 

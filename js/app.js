@@ -143,8 +143,10 @@ async function checkData() {
     const checked = new Set(c.features); renderFeats(w);
     document.querySelectorAll('#feats input').forEach(i => { i.checked = checked.has(i.value); });
     const cls = Object.entries(q.classes).map(([k, v]) => `${esc(k)} ${v.toLocaleString('en-GB')}`).join(' · ');
+    const problems = q.problems.slice(), perFold = Math.floor(q.rows / Math.max(1, c.k || 5));
+    if (perFold < 30) problems.push(`about ${perFold} test points per fold; a gap of a few points between the designs can arise by chance at this size`);
     $('quality').innerHTML = `<li>${q.rows.toLocaleString('en-GB')} rows; classes: ${cls}</li>` +
-      (q.problems.length ? q.problems.map(p => `<li class="warn">${esc(p)}</li>`).join('') : '<li class="ok">No problems found in rows, coordinates or target.</li>');
+      (problems.length ? problems.map(p => `<li class="warn">${esc(p)}</li>`).join('') : '<li class="ok">No problems found in rows, coordinates or target.</li>');
     await preview();
   } catch (e) { $('quality').innerHTML = `<li class="warn">${esc(e.message)}</li>`; S.previewOk = false; $('run').disabled = true; updateNext(); }
 }
@@ -230,9 +232,10 @@ async function runNow() {
 
 function render(r) {
   const a = r.random, b = r.spatial;
-  $('r-sub').textContent = `${r.rows_used.toLocaleString('en-GB')} rows, ${r.classes.length} classes, ${r.config.features.length} predictors. Random Forest, ${r.config.model.n_estimators} trees, seed ${r.config.seed}.`;
+  $('r-sub').textContent = `${S.name ? S.name + ': ' : ''}${r.rows_used.toLocaleString('en-GB')} rows, ${r.classes.length} classes, ${r.config.features.length} predictors. Random Forest, ${r.config.model.n_estimators} trees, seed ${r.config.seed}.`;
   const drop = a.pooled.accuracy - b.pooled.accuracy;
-  $('r-title').textContent = S.name || 'Result';
+  $('r-title').textContent = Math.abs(drop * 100) < 1 ? 'Random and spatial designs agree within one point'
+    : drop > 0 ? `Spatial blocks score ${(drop * 100).toFixed(1)} points lower than random folds` : `Spatial blocks score ${(-drop * 100).toFixed(1)} points higher than random folds`;
   summary(2, `Done: ${pct(a.pooled.accuracy)} random, ${pct(b.pooled.accuracy)} spatial`);
   const k = [
     [a.design.includes('hold-out') ? 'Random hold-out' : 'Random folds', pct(a.pooled.accuracy), `kappa ${num(a.pooled.kappa, 3)}${a.per_fold.length > 1 ? `, fold spread ±${pct(a.fold_accuracy_sd)}` : ', single hold-out'}`],
@@ -268,16 +271,20 @@ function render(r) {
 // a reading of the result from the computed values only: the gap, the classes that lose most, the limits
 function reading(r) {
   const a = r.random, b = r.spatial, drop = (a.pooled.accuracy - b.pooled.accuracy) * 100;
+  const spread = Math.max(a.per_fold.length > 1 ? a.fold_accuracy_sd : 0, b.per_fold.length > 1 ? b.fold_accuracy_sd : 0) * 100;
+  const perFold = Math.round(b.pooled.n / Math.max(1, b.per_fold.length)), small = perFold < 30, noisy = spread > Math.abs(drop);
+  const caveat = small ? ` With about ${perFold} test points per fold, this is too few to tell a small gap from chance.`
+    : noisy ? ` The fold-to-fold spread (±${spread.toFixed(1)} points) is larger than this gap, so the difference is within fold-to-fold variation.` : '';
   $('rd-main').innerHTML = `Accuracy is <span class="k">${pct(a.pooled.accuracy)}</span> when test points are chosen at random (median ${km(a.median_test_to_train_m)} from the nearest training point) and <span class="k">${pct(b.pooled.accuracy)}</span> when whole ${r.config.block_km} km blocks are held out (median ${km(b.median_test_to_train_m)}). `
-    + (Math.abs(drop) < 1 ? 'The two designs agree within one percentage point: on these data, the nearness of test points barely changes the score.'
-      : drop > 0 ? `That is ${drop.toFixed(1)} percentage points lower: part of the random score came from test points sitting close to training points.`
-      : `Held-out blocks score ${(-drop).toFixed(1)} points higher; with one seed and different class mixes per fold, a gap in this direction is usually noise.`);
+    + (Math.abs(drop) < 1 ? (small || noisy ? 'The two designs agree within one percentage point.' : 'The two designs agree within one percentage point: on these data, the nearness of test points changes the score little.')
+      : drop > 0 ? `That is ${drop.toFixed(1)} percentage points lower: part of the random score ${small || noisy ? 'may have come' : 'came'} from test points sitting close to training points.`
+      : `Held-out blocks score ${(-drop).toFixed(1)} points higher; with one seed and different class mixes per fold, a gap in this direction is usually noise.`) + caveat;
   const cls = r.classes.filter(c => a.pooled.per_class[c] && b.pooled.per_class[c]).map(c => ({ c, dr: a.pooled.per_class[c].recall - b.pooled.per_class[c].recall, dp: a.pooled.per_class[c].precision - b.pooled.per_class[c].precision, ra: a.pooled.per_class[c].recall, rb: b.pooled.per_class[c].recall, pa: a.pooled.per_class[c].precision, pb: b.pooled.per_class[c].precision }));
   const wr = cls.slice().sort((x, y) => y.dr - x.dr)[0], wp = cls.slice().sort((x, y) => y.dp - x.dp)[0];
   const bits = [];
   if (wr && wr.dr >= 0.02) bits.push(`recall falls most for <span class="k">${esc(wr.c)}</span> (${num(wr.ra, 3)} → ${num(wr.rb, 3)}: more of it is missed)`);
   if (wp && wp.dp >= 0.02) bits.push(`precision falls most for <span class="k">${esc(wp.c)}</span> (${num(wp.pa, 3)} → ${num(wp.pb, 3)}: more other classes are labelled as it)`);
-  $('rd-detail').innerHTML = bits.length ? `Under spatial blocks, ${bits.join('; ')}. These are the classes least likely to transfer to new places.` : 'No class loses two points or more of precision or recall under spatial blocks.';
+  $('rd-detail').innerHTML = bits.length ? `Under spatial blocks, ${bits.join('; ')}. This is from one seed and one split; run again with another seed before reading it as a property of the class.` : 'No class loses two points or more of precision or recall under spatial blocks.';
   $('reading').hidden = false;
 }
 function cmTable(cm, labels) {
@@ -389,9 +396,9 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
       .concat(r.spatial.block_polygons.features.map(f => ({ ...f, properties: { block: f.properties.block, spatial_fold: f.properties.fold + 1 } }))) };
     save(new Blob([JSON.stringify(fc)], { type: 'application/geo+json' }), `${stem}_folds.geojson`);
   } else if (k === 'png') {
-    const a = $('c-folds'), s = $('c-sweep'), c = document.createElement('canvas'); c.width = a.width + s.width + 20; c.height = a.height + 30 + 30 * (window.devicePixelRatio || 1);
-    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(a, 0, 30); ctx.drawImage(s, a.width + 20, 30);
-    ctx.fillStyle = '#141412'; ctx.font = '14px Satoshi, sans-serif'; ctx.fillText(`GeoValidate · ${S.name} · accuracy per fold (left) and against block size (right)`, 6, 18);
+    const a = $('c-folds'), s = $('c-sweep'), both = !!S.sweep, c = document.createElement('canvas'); c.width = a.width + (both ? s.width + 20 : 0); c.height = a.height + 30 + 30 * (window.devicePixelRatio || 1);
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(a, 0, 30); if (both) ctx.drawImage(s, a.width + 20, 30);
+    ctx.fillStyle = '#141412'; ctx.font = '14px Satoshi, sans-serif'; ctx.fillText(both ? `GeoValidate · ${S.name} · accuracy per fold (left) and against block size (right)` : `GeoValidate · ${S.name} · accuracy per fold`, 6, 18);
     const dpr = window.devicePixelRatio || 1; let lx = 6; ctx.font = `${12 * dpr}px Satoshi, sans-serif`;
     r.spatial.per_fold.forEach((f, i) => { ctx.fillStyle = FOLD_COLORS[f.fold % 10]; ctx.beginPath(); ctx.arc(lx + 5 * dpr, c.height - 12 * dpr + 4, 4 * dpr, 0, 7); ctx.fill(); ctx.fillStyle = '#141412'; ctx.fillText(`fold ${f.fold + 1}`, lx + 12 * dpr, c.height - 8 * dpr + 4); lx += 62 * dpr; });
     c.toBlob(bl => save(bl, `${stem}_charts.png`), 'image/png');

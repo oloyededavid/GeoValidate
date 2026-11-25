@@ -38,3 +38,14 @@ Run on 23 November 2026. Evidence files are in `docs/validation/`.
 | 20 | Whole journey in headless Chromium, 1440 × 900: opening screen, example from the opening screen, Reading, values tables, sweep with progress in the status line, exports with limits and metadata, Tools menu | works, no console errors, 0 axe violations | example 25 s, sweep 30 s, no errors, 0 violations | Pass |
 | 21 | Empty file | message without starting the engine | "“empty.csv” is empty." immediately | Pass |
 | 22 | Phone, 390 px | title and purpose above the steps; no horizontal scrolling | title at 83 px, opening text 226 px, steps 658 px; 0 px overflow | Pass |
+
+### 1.1.1 (after the independent review)
+
+| # | Check | Expected | Result | Status |
+|---|---|---|---|---|
+| 23 | Whole journey (`tests/browser_e2e.cjs`) after the 1.1.1 changes | 93.2% random, 88.8% spatial; five exports; no errors | as expected; 0 px overflow at 390 px | Pass |
+| 24 | 40-row file, five folds | data check warns about test points per fold; Reading does not conclude that nearness does not matter | "about 8 test points per fold …"; "too few to tell a small gap from chance" | Pass |
+| 25 | Chart image before the sweep | folds chart only, no empty half | folds chart only | Pass |
+| 26 | Version check | page and engine agree | 1.1.1 | Pass |
+
+Changes in 1.1.1: the small-sample warning; the Reading says when the gap is smaller than the fold-to-fold spread; the per-class sentence says it comes from one seed and one split instead of "least likely to transfer"; the result heading states the finding, with the file name below it; the three example buttons use one wording. The engine is unchanged apart from its version number.

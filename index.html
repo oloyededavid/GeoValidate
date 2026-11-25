@@ -42,8 +42,8 @@
           <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a CSV or GeoJSON file">Drop a file or click to choose<br><span class="small">Up to 20 MB and 50,000 rows. It stays on your computer.</span></div>
           <input type="file" id="file" accept=".csv,.geojson,.json,text/csv,application/geo+json" hidden>
           <div class="row" style="margin-top:8px">
-            <button class="rb" id="sample" type="button">Load sample</button>
-            <button class="rb" id="demo" type="button">Run example</button>
+            <button class="rb" id="sample" type="button">Load example data</button>
+            <button class="rb" id="demo" type="button">Run the example</button>
           </div>
           <p class="small" id="data-info" aria-live="polite" style="margin:10px 0 0"></p>
           <button class="rb go wide" id="next-0" type="button" disabled>Continue</button>
@@ -125,7 +125,7 @@
         <li>Downloads with the settings and a fingerprint of your file</li>
       </ul>
       <div class="start">
-        <button class="hb go" type="button" data-start="demo">Run the Mau Forest example</button>
+        <button class="hb go" type="button" data-start="demo">Run the example (Mau Forest, Kenya)</button>
         <button class="hb" type="button" data-start="file">Use my own file</button>
         <span class="small">The first run downloads the Python engine (about 36 MB). Your data never leave your computer.</span>
       </div>

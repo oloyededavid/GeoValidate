@@ -28,3 +28,13 @@ Run on 23 November 2026. Evidence files are in `docs/validation/`.
 - Categorical predictors and missing predictor values on real data in the browser (covered by the pipeline and the leakage test).
 - Files near the 50,000-row limit.
 - The PDF print layout.
+
+## Version 1.1.0 (interface upgrade), 25 November 2026
+
+| # | Test | Expected | Actual | Result |
+|---|---|---|---|---|
+| 18 | `tests/check_expected.py` on the Pyodide result for the sample (fixed inputs) | random 0.9324, kappa 0.9155; spatial 0.8884, kappa 0.8605; 5,000 rows; 81 blocks | identical | Pass |
+| 19 | `tests/verify.py` and `tests/regression_test.py` after the upgrade | all pass | all pass | Pass |
+| 20 | Whole journey in headless Chromium, 1440 × 900: opening screen, example from the opening screen, Reading, values tables, sweep with progress in the status line, exports with limits and metadata, Tools menu | works, no console errors, 0 axe violations | example 25 s, sweep 30 s, no errors, 0 violations | Pass |
+| 21 | Empty file | message without starting the engine | "“empty.csv” is empty." immediately | Pass |
+| 22 | Phone, 390 px | title and purpose above the steps; no horizontal scrolling | title at 83 px, opening text 226 px, steps 658 px; 0 px overflow | Pass |

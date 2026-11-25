@@ -21,9 +21,16 @@
 </head>
 <body>
 <header class="topbar">
-  <a class="back" href="https://oloyededavid.github.io/geospatial-rs-portfolio/#studies"><span aria-hidden="true">&larr;</span> Back to portfolio</a>
+  <a class="back" href="https://oloyededavid.github.io/geospatial-rs-portfolio/#tools"><span aria-hidden="true">&larr;</span> Back to portfolio</a>
   <span class="tb-title">GeoValidate</span>
   <span class="ver">v<span data-ver></span></span>
+  <details class="menu tools-menu"><summary class="hb">Tools</summary><div class="menu-list">
+    <a href="https://oloyededavid.github.io/FloodScope/">FloodScope<span>Flood extent and exposure from Sentinel-1 radar</span></a>
+    <a href="https://oloyededavid.github.io/AgroSignal/">AgroSignal<span>Season greenness against a baseline, with rainfall</span></a>
+    <a href="https://oloyededavid.github.io/GeoValidate/" aria-current="page">GeoValidate<span>Random against spatial validation of a classifier</span></a>
+    <a href="https://oloyededavid.github.io/geospatial-rs-portfolio/twin/">City Twins<span>A city's climate and size twin in another country</span></a>
+    <div class="menu-foot"><a href="https://oloyededavid.github.io/geospatial-rs-portfolio/#tools">All tools and studies<span>The research portfolio</span></a></div>
+  </div></details>
   <button class="hb" id="about-open" type="button" aria-haspopup="dialog">About and method</button>
 </header>
 <div class="app">
@@ -40,6 +47,7 @@
           </div>
           <p class="small" id="data-info" aria-live="polite" style="margin:10px 0 0"></p>
           <button class="rb go wide" id="next-0" type="button" disabled>Continue</button>
+          <p class="hint" id="hint-0">Load a file or the sample to continue.</p>
         </div>
       </section>
       <section class="step locked" data-step="1">
@@ -56,6 +64,7 @@
           <ul class="quality" id="quality" aria-live="polite"></ul>
           <div class="row"><button class="rb" id="check" type="button" style="flex:0">Check again</button><span></span></div>
           <button class="rb go wide" id="next-1" type="button" disabled>Continue</button>
+          <p class="hint" id="hint-1">Choose the target, the coordinates and at least one predictor; the data check must pass.</p>
         </div>
       </section>
       <section class="step locked" data-step="2">
@@ -75,6 +84,7 @@
           </details>
           <p class="small" id="fold-info" style="margin:8px 0 0"></p>
           <button class="rb go wide" id="run" type="button" disabled>Compare the two designs</button>
+          <p class="hint" id="hint-2">Waiting for the fold preview; it must find enough blocks for the chosen folds.</p>
         </div>
       </section>
     </div>
@@ -105,13 +115,34 @@
       </details>
     </header>
 
-    <section class="kpis empty" id="figs" aria-label="Key figures">
+    <section class="intro" id="intro" aria-labelledby="intro-h">
+      <h2 id="intro-h">What GeoValidate does</h2>
+      <p class="lead">Nearby places look alike, so a classifier tested on points next to its training points can look better than it is. GeoValidate trains the same Random Forest twice on your labelled points, once testing on random points and once on whole held-out blocks, and shows how much of the score depended on that nearness.</p>
+      <ul>
+        <li>Accuracy, kappa and F1 for both designs, fold by fold and class by class</li>
+        <li>A map of folds and blocks, and of where predictions fail</li>
+        <li>How accuracy changes as the blocks grow</li>
+        <li>Downloads with the settings and a fingerprint of your file</li>
+      </ul>
+      <div class="start">
+        <button class="hb go" type="button" data-start="demo">Run the Mau Forest example</button>
+        <button class="hb" type="button" data-start="file">Use my own file</button>
+        <span class="small">The first run downloads the Python engine (about 36 MB). Your data never leave your computer.</span>
+      </div>
+    </section>
+    <section class="kpis empty" id="figs" aria-label="Key figures" hidden>
       <div class="kpi"><div class="l">Random folds</div><div class="v">–</div><div class="d">overall accuracy</div></div>
       <div class="kpi"><div class="l">Spatial blocks</div><div class="v">–</div><div class="d">overall accuracy</div></div>
       <div class="kpi"><div class="l">Difference</div><div class="v">–</div><div class="d">percentage points</div></div>
       <div class="kpi"><div class="l">Test to training</div><div class="v">–</div><div class="d">median distance, random / spatial</div></div>
     </section>
 
+    <section class="reading" id="reading" hidden aria-labelledby="reading-h">
+      <h2 id="reading-h">Reading</h2>
+      <p id="rd-main"></p>
+      <p id="rd-detail"></p>
+      <p class="limit" id="rd-limit"><b>What this does not show:</b> neither design estimates the accuracy of a map made with this model; that needs a probability sample of reference data. One seed and different class mixes per fold, so read the gap as an indication, not a precise estimate.</p>
+    </section>
     <div class="body">
       <div class="mapwrap">
         <div id="map" role="region" aria-label="Map of the points and folds"></div>
@@ -138,6 +169,7 @@
           <h2>Accuracy by fold</h2>
           <p id="gap">Load data and compare the two designs to see how much the score depends on test points sitting next to training points.</p>
           <canvas class="chart" id="c-folds" width="720" height="240" role="img" aria-label="Accuracy of each fold for both designs" hidden></canvas>
+          <details class="data" id="folds-data" hidden><summary>Values</summary><div></div></details>
         </div>
         <div class="tabpane" data-tabpane="metrics" hidden>
           <div class="compare" id="compare"><p class="empty-state">Metrics appear after a comparison.</p></div>
@@ -146,6 +178,8 @@
           <h2>Accuracy against block size</h2>
           <p>Spatial block accuracy as the blocks grow; the dashed line is random folds.</p>
           <canvas class="chart" id="c-sweep" width="720" height="240" role="img" aria-label="Spatial accuracy against block size"></canvas>
+          <p id="sweep-reading" hidden></p>
+          <details class="data" id="sweep-data" hidden><summary>Values</summary><div></div></details>
           <button class="hb" id="sweep" type="button" style="margin-top:10px" disabled>Run the block-size sweep</button>
         </div>
       </section>

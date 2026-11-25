@@ -5,8 +5,9 @@ const pct = (v, d = 1) => v == null || !(v === v) ? '—' : `${(v * 100).toFixed
 const num = (v, d = 3) => v == null || !(v === v) ? '—' : v.toFixed(d);
 const km = m => m == null || !(m === m) ? '—' : m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${Math.round(m)} m`;
 const BLOCKS = [0.5, 1, 2, 3, 5, 7.5, 10, 15, 20, 30, 50, 75, 100];
-const FOLD_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'];
-const CLASS_COLORS = ['#1b7837', '#a6d96a', '#e6c84b', '#c0392b', '#2c7fb8', '#7b3294', '#e08214', '#878787', '#35978f', '#f781bf'];
+// categorical colours chosen so neighbours stay apart under protan, deutan and tritan vision (project-notes/tools/colour_check.py)
+const FOLD_COLORS = ['#0072b2', '#f0e442', '#d55e00', '#66ccee', '#882255', '#332288', '#cc79a7', '#e69f00', '#6a6963', '#009e73'];
+const CLASS_COLORS = FOLD_COLORS;
 import { VERSION } from './version.js';
 document.querySelectorAll('[data-ver]').forEach(e => { e.textContent = VERSION; });
 const MAX_BYTES = 20 * 1024 * 1024;
@@ -78,7 +79,11 @@ async function readFile(f) {
   const kind = ext === 'csv' ? 'csv' : ext === 'geojson' || ext === 'json' ? 'geojson' : null;
   if (!kind) return info(`“${f.name}” is not a CSV or GeoJSON file.`, true);
   if (f.size > MAX_BYTES) return info(`“${f.name}” is ${(f.size / 1048576).toFixed(1)} MB; the limit is 20 MB.`, true);
-  await load(await f.text(), f.name, kind);
+  const text = await f.text();
+  // trivial problems are reported at once, without starting the 36 MB engine
+  if (!text.trim()) return info(`“${f.name}” is empty.`, true);
+  if (kind === 'csv' && text.trim().split(/\r?\n/).length < 2) return info(`“${f.name}” has a header row but no data rows.`, true);
+  await load(text, f.name, kind);
 }
 async function loadSample() {
   const r = await fetch(new URL('../data/sample_mau_forest.csv', import.meta.url));
@@ -209,7 +214,7 @@ async function drawMap(fit) {
 // ---------------------------------------------------------------- run
 $('run').addEventListener('click', runNow);
 async function runNow() {
-  $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now'); S.result = null; S.sweep = null; resetResult(); summary(2, 'Running'); document.querySelector('[data-view="errors"]').disabled = true; drawMap(false);
+  S.running = true; $('run').disabled = true; log.innerHTML = ''; line('Starting', 'now'); S.result = null; S.sweep = null; resetResult(); summary(2, 'Running'); document.querySelector('[data-view="errors"]').disabled = true; drawMap(false);
   const t0 = performance.now();
   try {
     const r = await ask('run', { cfg: cfg() }, m => line(m, 'now'));
@@ -218,9 +223,9 @@ async function runNow() {
     S.result = r; S.stale = false; S.sweep = null; S.runAt = new Date().toISOString();
     document.querySelector('[data-view="errors"]').disabled = false;
     render(r); drawMap(true); syncExports();
-    setLocks(); if (window.innerWidth <= 860) document.querySelector('.main').scrollIntoView({ behavior: 'smooth' });
+    setLocks(); if (window.innerWidth <= 860) $('reading').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) { line(e.message, 'err'); summary(2, 'Failed; see the message below'); }
-  finally { $('run').disabled = !S.previewOk || cfg().crs === 'EPSG:'; }
+  finally { S.running = false; $('run').disabled = !S.previewOk || cfg().crs === 'EPSG:'; updateNext(); if (!S.result) resetResult(); }
 }
 
 function render(r) {
@@ -238,7 +243,7 @@ function render(r) {
   $('figs').classList.remove('empty');
   $('figs').innerHTML = k.map(([l, v, d]) => `<div class="kpi"><div class="l">${esc(l)}</div><div class="v">${v}</div><div class="d">${esc(d)}</div></div>`).join('');
   $('c-folds').hidden = false; $('sweep').disabled = false;
-  $('gap').innerHTML = `Accuracy is <strong>${pct(a.pooled.accuracy)}</strong> with random test points (median ${km(a.median_test_to_train_m)} from the nearest training point) and <strong>${pct(b.pooled.accuracy)}</strong> with whole ${r.config.block_km} km blocks held out (median ${km(b.median_test_to_train_m)}${r.config.buffer_km > 0 ? `, after a ${r.config.buffer_km} km buffer` : ''}): ${drop >= 0 ? `${(drop * 100).toFixed(1)} percentage points lower` : `${(-drop * 100).toFixed(1)} points higher`}. One seed; the folds also differ in class mix, so read the gap as an indication, not a precise estimate.`;
+  $('gap').textContent = 'Each dot is one fold; the line is the accuracy over all folds together. A wide spread under spatial blocks means the score depends on which places are held out.';
   const card = (m, title, tag) => `<div class="method"><h3>${title} <span class="tag">${tag}</span></h3><p class="design">${esc(m.design)}</p>
     <div class="mk">
       <div class="mki"><span class="v">${pct(m.pooled.accuracy)}</span><span class="u">overall accuracy${m.pooled.n < r.rows_used ? ` (${m.pooled.n} of ${r.rows_used} rows)` : ''}</span></div>
@@ -251,6 +256,29 @@ function render(r) {
     ${m.warnings.length ? `<p class="warn">${m.warnings.map(esc).join('<br>')}</p>` : ''}</div>`;
   $('compare').innerHTML = card(a, 'Random', 'A') + card(b, 'Spatial blocks', 'B');
   drawFolds(r); drawSweep();
+  $('intro').hidden = true; $('figs').hidden = false;
+  reading(r);
+  const fr = (m, i) => m.per_fold[i] ? pct(m.per_fold[i].accuracy) : '—';
+  const nf = Math.max(a.per_fold.length, b.per_fold.length);
+  $('folds-data').querySelector('div').innerHTML = `<table class="t"><thead><tr><th>Fold</th><th class="n">Random</th><th class="n">Spatial blocks</th></tr></thead><tbody>${
+    Array.from({ length: nf }, (_, i) => `<tr><td>${i + 1}</td><td class="n">${fr(a, i)}</td><td class="n">${fr(b, i)}</td></tr>`).join('')}
+    <tr><td>All folds</td><td class="n">${pct(a.pooled.accuracy)}</td><td class="n">${pct(b.pooled.accuracy)}</td></tr></tbody></table>`;
+  $('folds-data').hidden = false;
+}
+// a reading of the result from the computed values only: the gap, the classes that lose most, the limits
+function reading(r) {
+  const a = r.random, b = r.spatial, drop = (a.pooled.accuracy - b.pooled.accuracy) * 100;
+  $('rd-main').innerHTML = `Accuracy is <span class="k">${pct(a.pooled.accuracy)}</span> when test points are chosen at random (median ${km(a.median_test_to_train_m)} from the nearest training point) and <span class="k">${pct(b.pooled.accuracy)}</span> when whole ${r.config.block_km} km blocks are held out (median ${km(b.median_test_to_train_m)}). `
+    + (Math.abs(drop) < 1 ? 'The two designs agree within one percentage point: on these data, the nearness of test points barely changes the score.'
+      : drop > 0 ? `That is ${drop.toFixed(1)} percentage points lower: part of the random score came from test points sitting close to training points.`
+      : `Held-out blocks score ${(-drop).toFixed(1)} points higher; with one seed and different class mixes per fold, a gap in this direction is usually noise.`);
+  const cls = r.classes.filter(c => a.pooled.per_class[c] && b.pooled.per_class[c]).map(c => ({ c, dr: a.pooled.per_class[c].recall - b.pooled.per_class[c].recall, dp: a.pooled.per_class[c].precision - b.pooled.per_class[c].precision, ra: a.pooled.per_class[c].recall, rb: b.pooled.per_class[c].recall, pa: a.pooled.per_class[c].precision, pb: b.pooled.per_class[c].precision }));
+  const wr = cls.slice().sort((x, y) => y.dr - x.dr)[0], wp = cls.slice().sort((x, y) => y.dp - x.dp)[0];
+  const bits = [];
+  if (wr && wr.dr >= 0.02) bits.push(`recall falls most for <span class="k">${esc(wr.c)}</span> (${num(wr.ra, 3)} → ${num(wr.rb, 3)}: more of it is missed)`);
+  if (wp && wp.dp >= 0.02) bits.push(`precision falls most for <span class="k">${esc(wp.c)}</span> (${num(wp.pa, 3)} → ${num(wp.pb, 3)}: more other classes are labelled as it)`);
+  $('rd-detail').innerHTML = bits.length ? `Under spatial blocks, ${bits.join('; ')}. These are the classes least likely to transfer to new places.` : 'No class loses two points or more of precision or recall under spatial blocks.';
+  $('reading').hidden = false;
 }
 function cmTable(cm, labels) {
   const max = Math.max(...cm.flat(), 1), short = s => s.length > 14 ? s.slice(0, 13) + '…' : s;
@@ -310,14 +338,31 @@ $('sweep').addEventListener('click', async () => {
   if (!S.result) return;
   const sizes = [1, 2, 5, 10, 20].filter(b => b !== S.result.config.block_km).concat([S.result.config.block_km]).sort((a, b) => a - b);
   document.querySelectorAll('.sweep-note').forEach(n => n.remove());
-  $('sweep').disabled = true; $('sweep').textContent = 'Running…';
-  try { S.sweep = await ask('sweep', { cfg: S.result.config, blocks: sizes }, m => { $('sweep').textContent = m; }); drawSweep();
+  $('sweep').disabled = true; $('sweep').textContent = 'Running the sweep…'; const t0 = performance.now();
+  line(`Block-size sweep: ${sizes.length} block sizes (${sizes.join(', ')} km)`, 'now');
+  try { S.sweep = await ask('sweep', { cfg: S.result.config, blocks: sizes }, m => { $('sweep').textContent = m; line(m, 'now'); }); drawSweep();
+    line(`Done: block-size sweep in ${((performance.now() - t0) / 1000).toFixed(1)} s`); sweepReading();
     const bad = S.sweep.rows.filter(r => r.error); if (bad.length) $('sweep').insertAdjacentHTML('afterend', `<p class="warn sweep-note">* ${bad.map(r => esc(r.error)).join('; ')}</p>`); }
-  catch (e) { alert(e.message); }
+  catch (e) { line(e.message, 'err'); }
   finally { $('sweep').disabled = !S.result; $('sweep').textContent = 'Run the block-size sweep again'; }
 });
 
+function sweepReading() {
+  const rows = S.sweep.rows.filter(x => x.accuracy != null); if (!rows.length) return;
+  const f = rows[0], l = rows[rows.length - 1], base = S.result.random.pooled.accuracy;
+  $('sweep-reading').innerHTML = `Spatial accuracy is <strong>${pct(f.accuracy)}</strong> with ${f.block_km} km blocks and <strong>${pct(l.accuracy)}</strong> with ${l.block_km} km blocks, against ${pct(base)} for random folds. Larger blocks put test points further from training points. There is no single correct block size: choose one about as large as the distance over which you need the model to predict.`;
+  $('sweep-reading').hidden = false;
+  $('sweep-data').querySelector('div').innerHTML = `<table class="t"><thead><tr><th>Block size</th><th class="n">Accuracy</th><th class="n">Kappa</th><th class="n">Fold spread</th></tr></thead><tbody>${
+    S.sweep.rows.map(x => `<tr><td>${x.block_km} km</td><td class="n">${x.accuracy == null ? '—' : pct(x.accuracy)}</td><td class="n">${x.kappa == null ? '—' : num(x.kappa, 3)}</td><td class="n">${x.fold_sd == null ? '—' : '±' + pct(x.fold_sd)}</td></tr>`).join('')}</tbody></table>`;
+  $('sweep-data').hidden = false;
+}
+
 // ---------------------------------------------------------------- exports
+const LIMITS = ['Neither design estimates map accuracy; that needs a probability sample of reference data (Wadoux et al., 2021).',
+  'Spatial blocks answer a different question from random folds; they are not automatically better.',
+  'One seed; the designs also differ in class mix per fold, so the gap is an indication, not a precise estimate.',
+  'Classification only, Random Forest only.'];
+const round6 = v => typeof v === 'number' ? Math.round(v * 1e6) / 1e6 : v;
 // text that starts with = + - @ is prefixed with ' so spreadsheets do not run it as a formula
 const csvCell = v => { let s = v == null ? '' : String(v); if (typeof v === 'string' && /^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const csv = rows => rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
@@ -328,25 +373,27 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
   if (k === 'eval') {
     const rows = [['design', 'scope', 'fold', 'n_train', 'n_test', 'accuracy', 'kappa', 'macro_precision', 'macro_recall', 'macro_f1', 'weighted_f1', 'median_test_to_train_m']];
     for (const [d, m] of [['random', r.random], ['spatial', r.spatial]]) {
-      rows.push([m.design, 'all folds', '', '', m.pooled.n, m.pooled.accuracy, m.pooled.kappa, m.pooled.macro.precision, m.pooled.macro.recall, m.pooled.macro.f1, m.pooled.weighted.f1, m.median_test_to_train_m]);
-      for (const f of m.per_fold) rows.push([m.design, 'fold', f.fold + 1, f.n_train, f.n_test, f.accuracy, f.kappa, f.macro.precision, f.macro.recall, f.macro.f1, f.weighted.f1, f.median_test_to_train_m]);
+      rows.push([m.design, 'all folds', '', '', m.pooled.n, m.pooled.accuracy, m.pooled.kappa, m.pooled.macro.precision, m.pooled.macro.recall, m.pooled.macro.f1, m.pooled.weighted.f1, m.median_test_to_train_m].map(round6));
+      for (const f of m.per_fold) rows.push([m.design, 'fold', f.fold + 1, f.n_train, f.n_test, f.accuracy, f.kappa, f.macro.precision, f.macro.recall, f.macro.f1, f.weighted.f1, f.median_test_to_train_m].map(round6));
     }
     rows.push([]); rows.push(['design', 'class', 'precision', 'recall', 'f1', 'support']);
-    for (const m of [r.random, r.spatial]) for (const [c, v] of Object.entries(m.pooled.per_class)) rows.push([m.design, c, v.precision, v.recall, v.f1, v.support]);
+    for (const m of [r.random, r.spatial]) for (const [c, v] of Object.entries(m.pooled.per_class)) rows.push([m.design, c, v.precision, v.recall, v.f1, v.support].map(round6));
     save(new Blob([csv(rows)], { type: 'text/csv' }), `${stem}_evaluation.csv`);
   } else if (k === 'folds') {
     const rows = [['source_row', 'lon', 'lat', 'target', 'random_fold', 'random_prediction', 'spatial_fold', 'spatial_block', 'spatial_prediction']];
     r.kept_index.forEach((src, i) => rows.push([src + 1, r.lonlat[i][0], r.lonlat[i][1], r.y[i], r.random.folds[i] < 0 ? 'train' : r.random.folds[i] + 1, r.random.predictions[i], r.spatial.folds[i] + 1, r.spatial.blocks[i], r.spatial.predictions[i]]));
     save(new Blob([csv(rows)], { type: 'text/csv' }), `${stem}_folds.csv`);
   } else if (k === 'geojson') {
-    const fc = { type: 'FeatureCollection', name: 'GeoValidate folds', features: r.kept_index.map((src, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: r.lonlat[i] },
+    const fc = { type: 'FeatureCollection', name: 'GeoValidate folds', geovalidate: { app: 'GeoValidate', version: r.version, run_at: S.runAt, file: S.name, file_sha256: S.meta.sha256, config: r.config, accuracy: { random: r.random.pooled.accuracy, spatial: r.spatial.pooled.accuracy }, limits: LIMITS }, features: r.kept_index.map((src, i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: r.lonlat[i] },
       properties: { source_row: src + 1, target: r.y[i], random_fold: r.random.folds[i] < 0 ? null : r.random.folds[i] + 1, random_prediction: r.random.predictions[i], spatial_fold: r.spatial.folds[i] + 1, spatial_block: r.spatial.blocks[i], spatial_prediction: r.spatial.predictions[i] } }))
       .concat(r.spatial.block_polygons.features.map(f => ({ ...f, properties: { block: f.properties.block, spatial_fold: f.properties.fold + 1 } }))) };
     save(new Blob([JSON.stringify(fc)], { type: 'application/geo+json' }), `${stem}_folds.geojson`);
   } else if (k === 'png') {
-    const a = $('c-folds'), s = $('c-sweep'), c = document.createElement('canvas'); c.width = a.width + s.width + 20; c.height = a.height + 40;
+    const a = $('c-folds'), s = $('c-sweep'), c = document.createElement('canvas'); c.width = a.width + s.width + 20; c.height = a.height + 30 + 30 * (window.devicePixelRatio || 1);
     const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(a, 0, 30); ctx.drawImage(s, a.width + 20, 30);
     ctx.fillStyle = '#141412'; ctx.font = '14px Satoshi, sans-serif'; ctx.fillText(`GeoValidate · ${S.name} · accuracy per fold (left) and against block size (right)`, 6, 18);
+    const dpr = window.devicePixelRatio || 1; let lx = 6; ctx.font = `${12 * dpr}px Satoshi, sans-serif`;
+    r.spatial.per_fold.forEach((f, i) => { ctx.fillStyle = FOLD_COLORS[f.fold % 10]; ctx.beginPath(); ctx.arc(lx + 5 * dpr, c.height - 12 * dpr + 4, 4 * dpr, 0, 7); ctx.fill(); ctx.fillStyle = '#141412'; ctx.fillText(`fold ${f.fold + 1}`, lx + 12 * dpr, c.height - 8 * dpr + 4); lx += 62 * dpr; });
     c.toBlob(bl => save(bl, `${stem}_charts.png`), 'image/png');
   } else if (k === 'config') {
     save(new Blob([JSON.stringify({ app: 'GeoValidate', engine_version: r.version, scikit_learn: r.sklearn, numpy: r.numpy, pandas: r.pandas, pyodide: '0.26.4',
@@ -354,11 +401,11 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
       config: r.config, numeric_predictors: r.numeric, categorical_predictors: r.categorical, classes: r.classes,
       results: { random: { design: r.random.design, accuracy: r.random.pooled.accuracy, macro_f1: r.random.pooled.macro.f1, kappa: r.random.pooled.kappa },
                  spatial: { design: r.spatial.design, accuracy: r.spatial.pooled.accuracy, macro_f1: r.spatial.pooled.macro.f1, kappa: r.spatial.pooled.kappa, n_blocks: r.spatial.n_blocks } },
-      sweep: S.sweep }, null, 2)], { type: 'application/json' }), `${stem}_config.json`);
+      sweep: S.sweep, limits: LIMITS }, null, 2)], { type: 'application/json' }), `${stem}_config.json`);
   } else if (k === 'pdf') {
     const img = map.getCanvas().toDataURL('image/png');
     $('report').innerHTML = `<h1>GeoValidate report</h1><p>${esc(S.name)} · ${r.rows_used} rows · run ${esc(S.runAt)} · SHA-256 ${esc(S.meta.sha256)}</p>
-      <p>${$('gap').innerHTML}</p><img src="${img}" alt="Map of spatial folds"><h2>Results</h2>${$('compare').innerHTML}
+      ${[...document.querySelectorAll('#reading p')].map(e => `<p>${e.innerHTML}</p>`).join('')}<img src="${img}" alt="Map of spatial folds"><h2>Results</h2>${$('compare').innerHTML}
       <h2>Configuration</h2><p class="src">${esc(JSON.stringify(r.config))}</p><p class="src">scikit-learn ${esc(r.sklearn)} in Pyodide 0.26.4 · GeoValidate ${esc(r.version)}</p>`;
     await new Promise(res => { const im = $('report').querySelector('img'); im.complete ? res() : (im.onload = res); });
     window.print();
@@ -382,7 +429,13 @@ function setLocks() {
     el.classList.toggle('locked', !reach(k)); el.classList.toggle('done', k !== step && complete(k)); h.setAttribute('aria-disabled', String(!reach(k))); h.tabIndex = reach(k) ? 0 : -1;
   });
 }
-function updateNext() { $('next-0').disabled = !S.meta; $('next-1').disabled = !S.previewOk; setLocks(); }
+function updateNext() {
+  $('next-0').disabled = !S.meta; $('next-1').disabled = !S.previewOk; setLocks();
+  $('hint-0').hidden = !$('next-0').disabled; $('hint-1').hidden = !$('next-1').disabled; $('hint-2').hidden = !$('run').disabled || !!S.running;
+}
+document.querySelectorAll('[data-start]').forEach(b => b.addEventListener('click', () => {
+  if (b.dataset.start === 'demo') $('demo').click(); else { go(0); $('file').click(); }
+}));
 function go(n) {
   step = n;
   document.querySelectorAll('.step').forEach(el => {
@@ -399,7 +452,8 @@ function syncExports() {
 }
 function resetResult() {
   syncExports();
-  $('figs').classList.add('empty');
+  $('figs').classList.add('empty'); $('reading').hidden = true; $('intro').hidden = !!S.running; $('figs').hidden = !S.running;
+  $('folds-data').hidden = true; $('sweep-data').hidden = true; $('sweep-reading').hidden = true;
   $('figs').querySelectorAll('.v').forEach(v => { v.textContent = '–'; });
   $('c-folds').hidden = true; $('sweep').disabled = true;
   $('gap').textContent = 'Compare the two designs to see how much the score depends on test points sitting next to training points.';

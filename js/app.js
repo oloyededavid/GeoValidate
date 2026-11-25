@@ -43,7 +43,10 @@ map.on('error', e => { if (styleFallback || map.isStyleLoaded() || (e && e.sourc
 function showLegend() { const L = $('legend'); L.hidden = false; if (!L.dataset.init) { L.dataset.init = '1'; L.open = !window.matchMedia('(max-width: 860px)').matches; } return $('legend-body'); }
 map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
-map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+// on phones the scale sits bottom-left above the legend chip and the map credits start closed (the i button opens them)
+const PHONE = matchMedia('(max-width: 860px)').matches;
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), PHONE ? 'bottom-left' : 'bottom-right');
+if (PHONE) map.once('load', () => document.querySelectorAll('.maplibregl-ctrl-attrib').forEach(e => { e.classList.remove('maplibregl-compact-show'); e.removeAttribute('open'); }));
 const mapReady = new Promise(r => map.on('load', r));
 mapReady.then(() => {
   map.addSource('blocks', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });

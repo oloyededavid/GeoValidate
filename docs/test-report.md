@@ -49,3 +49,5 @@ Run on 23 November 2026. Evidence files are in `docs/validation/`.
 | 26 | Version check | page and engine agree | 1.1.1 | Pass |
 
 Changes in 1.1.1: the small-sample warning; the Reading says when the gap is smaller than the fold-to-fold spread; the per-class sentence says it comes from one seed and one split instead of "least likely to transfer"; the result heading states the finding, with the file name below it; the three example buttons use one wording. The engine is unchanged apart from its version number.
+
+Phone map overlays (after 1.1.1, same version): at 860 px and below the scale bar sits bottom-left above the Legend chip, the map credits start closed behind the i button, and layer chips stay in one scrolling row. Checked at 390 px after an example run: no overlapping overlays; axe 0 violations.

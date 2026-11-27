@@ -106,13 +106,13 @@
     <section class="view" data-view="running" hidden>
       <h2>Comparing</h2>
       <p class="sub" id="run-what"></p>
-      <div class="progress"><div id="bar"></div></div>
+      <div class="progress" role="progressbar" aria-label="Progress"><div id="bar"></div></div>
       <ol class="stages" id="stages">
         <li data-k="random">Training and testing on random points</li>
         <li data-k="spatial">Training and testing on held-out blocks</li>
         <li data-k="sum">Summarising</li>
       </ol>
-      <p class="hint" id="run-step"></p>
+      <p class="hint" id="run-step" aria-live="polite"></p>
     </section>
 
     <section class="view" data-view="error" hidden>

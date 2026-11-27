@@ -57,9 +57,8 @@ $('to-setup').addEventListener('click', () => show('setup'));
 
 // welcome and onboarding
 function closeWelcome() { $('welcome').hidden = true; $('app').inert = false; $('home').hidden = false; document.body.classList.remove('welcoming'); map.resize(); }
-function openWelcome() { if (S.running) return; $('welcome').hidden = false; $('app').inert = true; $('home').hidden = true; document.body.classList.add('welcoming'); $('w-drop').focus(); }
 document.body.classList.add('welcoming'); $('app').inert = true;
-$('home').addEventListener('click', openWelcome);
+$('home').addEventListener('click', () => { if (!S.running) show('data'); });
 $('how-open').addEventListener('click', () => openTour(0));
 const TOUR = [
   { h: 'Add your points', t: 'A CSV or GeoJSON of labelled points with coordinates and predictors. The file is read in your browser and never uploaded.',
@@ -141,11 +140,17 @@ async function readFile(f) {
   if (await load(text, f.name, kind)) show('setup');
 }
 async function loadSample() {
-  const r = await fetch(new URL('../data/sample_mau_forest.csv', import.meta.url));
-  return load(await r.text(), 'sample_mau_forest.csv', 'csv');
+  try {
+    const r = await fetch(new URL('../data/sample_mau_forest.csv', import.meta.url));
+    if (!r.ok) throw new Error(`the example file could not be read (${r.status})`);
+    const ok = await load(await r.text(), 'sample_mau_forest.csv', 'csv');
+    if (!ok && S.meta) show('setup');   // loaded, but the check or fold preview needs attention: show it
+    return ok;
+  } catch (e) { info(`The example could not be loaded: ${e.message}`, true); return false; }
 }
+let loadSeq = 0;
 async function load(text, name, kind) {
-  info('Starting the Python engine…'); $('eng-bar-wrap').hidden = false; $('eng-bar').style.width = '2%';
+  const myLoad = ++loadSeq; info('Starting the Python engine…'); $('eng-bar-wrap').hidden = false; $('eng-bar').style.width = '2%';
   try {
     const meta = await ask('load', { text, kind }, (m, d) => { info(esc(m)); if (d && typeof d.frac === 'number') $('eng-bar').style.width = `${Math.round(100 * d.frac)}%`; });
     $('eng-bar').style.width = '100%';
@@ -154,20 +159,20 @@ async function load(text, name, kind) {
     info(`<b>${esc(name)}</b> · ${meta.rows.toLocaleString('en-GB')} rows · ${meta.columns.length} columns`);
     $('setup-file').textContent = `${name} · ${meta.rows.toLocaleString('en-GB')} rows`;
     await fillColumns(meta);
-    syncStepper(); return true;
+    syncStepper(); return S.previewOk;
   } catch (e) {
     info(e.message, true);
     if (e.engine) {   // the engine did not start: offer to try again with the same file, without asking for it again
       $('data-info').insertAdjacentHTML('beforeend', ' <button class="btn ghost sm" type="button" id="retry">Try again</button>');
-      $('retry').addEventListener('click', () => load(text, name, kind), { once: true });
+      $('retry').addEventListener('click', async () => { if (await load(text, name, kind)) show('setup'); }, { once: true });
     }
     syncStepper(); return false;
-  } finally { setTimeout(() => { $('eng-bar-wrap').hidden = true; }, 600); }
+  } finally { setTimeout(() => { if (myLoad === loadSeq) $('eng-bar-wrap').hidden = true; }, 600); }
 }
 function fillColumns(meta) {
   const opts = (sel, pick) => { sel.innerHTML = meta.columns.map(c => `<option${c === pick ? ' selected' : ''}>${esc(c)}</option>`).join(''); };
   opts($('c-target'), meta.guess.target); opts($('c-x'), meta.guess.x); opts($('c-y'), meta.guess.y);
-  renderFeats(); $('quality').innerHTML = '';
+  $('feats').innerHTML = ''; renderFeats(); $('quality').innerHTML = '';
   return checkData();
 }
 function renderFeats(warnings = {}) {
@@ -196,8 +201,7 @@ async function checkData() {
     const checked = new Set(c.features); renderFeats(w);
     document.querySelectorAll('#feats input').forEach(i => { i.checked = checked.has(i.value); }); featsSummary();
     const cls = Object.entries(q.classes).map(([k, v]) => `${esc(k)} ${v.toLocaleString('en-GB')}`).join(' · ');
-    const problems = q.problems.slice(), perFold = Math.floor(q.rows / Math.max(1, c.k || 5));
-    if (perFold < 30) problems.push(`about ${perFold} test points per fold; a gap of a few points between the designs can arise by chance at this size`);
+    const problems = q.problems.slice();
     $('quality').innerHTML = `<li>${q.rows.toLocaleString('en-GB')} rows · ${Object.keys(q.classes).length} classes: ${cls}</li>` +
       (problems.length ? problems.map(p => `<li class="warn">${esc(p)}</li>`).join('') : '<li class="ok">No problems found in rows, coordinates or classes.</li>');
     await preview();
@@ -214,7 +218,7 @@ let pvTimer = null;
 const settingChanged = () => { clearTimeout(pvTimer); pvTimer = setTimeout(preview, 150); };
 ['trees', 'leaf', 'cw', 'holdout'].forEach(id => $(id).addEventListener('change', settingChanged));
 ['k', 'block', 'buffer', 'seed'].forEach(id => $(id).addEventListener('input', () => { outs(); settingChanged(); }));
-const keyOf = c => JSON.stringify([c.target, c.x, c.y, c.crs, c.features, c.k, c.seed, c.block_km, c.buffer_km, c.method, c.model]);
+const keyOf = c => JSON.stringify([c.target, c.x, c.y, c.crs, [...c.features].sort(), +c.k, +c.seed, +c.block_km, +c.buffer_km, c.method, +c.model.n_estimators, +c.model.min_samples_leaf, c.model.class_weight || null]);   // the fields this page sets; the engine adds others to config.model
 async function preview() {
   if (!S.meta) return;
   const mine = ++previewSeq;
@@ -223,11 +227,13 @@ async function preview() {
     if (mine !== previewSeq) return;
     S.preview = p; S.previewOk = true;
     // settings changed after a result: the result is cleared, and the map shows the new folds
-    if (S.result && keyOf(S.result.config) !== keyOf(cfg())) clearResult();
+    if (S.result && !S.running && keyOf(S.result.config) !== keyOf(cfg())) clearResult();
     const empty = p.fold_class_counts.map(c => Object.entries(c).filter(([, n]) => n === 0).map(([k]) => k)).map((e, f) => e.length ? `fold ${f + 1} lacks ${e.join(', ')}` : '').filter(Boolean);
-    $('fold-info').innerHTML = `${p.n_blocks} blocks hold points; fold sizes ${p.fold_sizes.join(', ')}.` + (empty.length ? ` <span class="warn">${esc(empty.join('; '))}.</span>` : '');
+    const minFold = Math.min(...p.fold_sizes);
+    $('fold-info').innerHTML = `${p.n_blocks} blocks hold points; fold sizes ${p.fold_sizes.join(', ')}.` + (empty.length ? ` <span class="warn">${esc(empty.join('; '))}.</span>` : '')
+      + (minFold < 30 ? ` <span class="warn">The smallest fold has ${minFold} test points; a gap of a few points can arise by chance at this size.</span>` : '');
     syncStepper(); drawMap(true);
-  } catch (e) { if (mine !== previewSeq) return; S.previewOk = false; $('fold-info').innerHTML = `<span class="warn">${esc(e.message)}</span>`; syncStepper(); }
+  } catch (e) { if (mine !== previewSeq) return; S.previewOk = false; if (S.result && !S.running) clearResult(); $('fold-info').innerHTML = `<span class="warn">${esc(e.message)}</span>`; syncStepper(); }
 }
 
 // ---------------------------------------------------------------- map drawing
@@ -250,7 +256,7 @@ async function drawMap(fit) {
   map.getSource('pts').setData({ type: 'FeatureCollection', features: lonlat.map((c, i) => ({ type: 'Feature', properties: { color: color(i) }, geometry: { type: 'Point', coordinates: c } })) });
   const showBlocks = v === 'folds' || v === 'errors';
   map.getSource('blocks').setData(showBlocks ? { ...blocksFC, features: blocksFC.features.map(f => ({ ...f, properties: { ...f.properties, color: v === 'folds' ? FOLD_COLORS[f.properties.fold % 10] : '#6a6963' } })) } : { type: 'FeatureCollection', features: [] });
-  const key = S.name + lonlat.length;
+  const key = (S.meta && S.meta.sha256) + lonlat.length;
   if (fit && fitted !== key) {
     const sn = lonlat.reduce((q, c) => q + Math.sin(c[0] * Math.PI / 180), 0), cs = lonlat.reduce((q, c) => q + Math.cos(c[0] * Math.PI / 180), 0);
     const lon0 = Math.atan2(sn, cs) * 180 / Math.PI;   // circular mean, as the projection uses
@@ -273,6 +279,7 @@ function stage(k) { const i = STAGES.indexOf(k); document.querySelectorAll('#sta
 async function runNow() {
   if (S.running || !S.previewOk) return;
   const c = cfg();
+  clearTimeout(pvTimer); previewSeq++;   // a preview still waiting must not touch the new result
   S.running = true; S.sweep = null; if (S.result) clearResult(); show('running'); stage('random'); $('bar').style.width = '3%'; $('run-step').textContent = ''; S.log = [];
   $('run-what').textContent = `${S.name} · ${c.features.length} predictors · ${c.block_km} km blocks`;
   if (PHONE) $('app').querySelector('.panel').scrollIntoView({ behavior: 'smooth' });
@@ -301,8 +308,8 @@ function render(r) {
   $('r-verdict').textContent = Math.abs(drop) < 1 ? 'The two designs agree within one point'
     : drop > 0 ? `Spatial blocks score ${drop.toFixed(1)} points lower` : `Spatial blocks score ${(-drop).toFixed(1)} points higher`;
   $('r-reading').textContent = Math.abs(drop) < 1 ? 'On these data, how close test points sit to training points changes the score little.'
-    : drop > 0 ? `Part of the random score ${small || noisy ? 'may have come' : 'came'} from test points sitting close to training points (median ${km(a.median_test_to_train_m)} away, against ${km(b.median_test_to_train_m)} with blocks).`
-    : 'With one seed and different class mixes per fold, a gap in this direction is usually noise.';
+    : drop > 0 ? `Random test points sit a median ${km(a.median_test_to_train_m)} from the nearest training point, against ${km(b.median_test_to_train_m)} with blocks; part of the random score may come from that nearness, and part from the different class mix per fold.`
+    : 'Held-out blocks scored higher. With one seed and a different class mix per fold, a gap in this direction can arise by chance.';
   const stat = (l, v, d) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
   $('r-stats').innerHTML = stat(a.design.includes('hold-out') ? 'Random hold-out' : 'Random folds', pct(a.pooled.accuracy), `kappa ${num(a.pooled.kappa, 2)}`)
     + stat('Spatial blocks', pct(b.pooled.accuracy), `kappa ${num(b.pooled.kappa, 2)}`)
@@ -337,7 +344,7 @@ function render(r) {
     ['Software', `GeoValidate ${esc(r.version)}, scikit-learn ${esc(r.sklearn)} in Pyodide 0.26.4; run in ${S.runSeconds.toFixed(1)} s`],
   ];
   $('r-run').innerHTML = `<table class="kv">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
-  $('c-sweep').hidden = true; $('sweep-reading').textContent = 'Rerun the spatial design with 1 to 20 km blocks to see how the score changes.'; $('sweep').textContent = 'Run the block-size sweep';
+  $('c-sweep').hidden = true; $('sweep-reading').textContent = 'Rerun the spatial design with 1 to 20 km blocks to see how the score changes.'; $('sweep').textContent = 'Run the block-size sweep'; $('sweep').disabled = false;
 }
 function cmTable(cm, labels) {
   const max = Math.max(...cm.flat(), 1), short = s => s.length > 14 ? s.slice(0, 13) + '…' : s;
@@ -409,8 +416,8 @@ $('sweep').addEventListener('click', async () => {
     if (rows.length) { const f = rows[0], l = rows[rows.length - 1];
       $('sweep-reading').innerHTML = `Spatial accuracy is <b>${pct(f.accuracy)}</b> with ${f.block_km} km blocks and <b>${pct(l.accuracy)}</b> with ${l.block_km} km blocks, against ${pct(result.random.pooled.accuracy)} for random folds. Larger blocks put test points further from training points; there is no single correct size.`
         + (bad.length ? ` <span class="warn">* ${bad.map(r => esc(r.error)).join('; ')}</span>` : ''); }
-  } catch (e) { $('sweep-reading').textContent = e.message; }
-  finally { $('sweep').disabled = !S.result; $('sweep').textContent = 'Run the sweep again'; }
+  } catch (e) { if (S.result === result) $('sweep-reading').textContent = e.message; }
+  finally { if (S.result === result) { $('sweep').disabled = false; $('sweep').textContent = 'Run the sweep again'; } }
 });
 let rz = null;
 window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (S.result) { drawFolds(S.result); drawSweep(); } }, 150); });
@@ -466,7 +473,7 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
     $('export').close();
     const img = map.getCanvas().toDataURL('image/png');
     $('report').innerHTML = `<h1>${esc($('r-verdict').textContent)}</h1><p>${esc(S.name)} · ${r.rows_used} rows · run ${esc(S.runAt)} · SHA-256 ${esc(S.meta.sha256)}</p>
-      <p>${esc($('r-reading').textContent)}</p><p>${$('r-classes').innerHTML}</p><img src="${img}" alt="Map of spatial folds"><h2>Results</h2>${$('compare').innerHTML}
+      <p>${esc($('r-reading').textContent)}</p><p>${$('r-classes').innerHTML}</p><h2>Map: ${esc($('view').selectedOptions[0].textContent)}</h2><img src="${img}" alt="Map: ${esc($('view').selectedOptions[0].textContent)}"><p>${[...$('legend').querySelectorAll('.sw')].map(e => esc(e.textContent)).join(' · ')}</p><h2>Results</h2>${$('compare').innerHTML}
       <h2>Configuration</h2><p>${esc(JSON.stringify(r.config))}</p><p>scikit-learn ${esc(r.sklearn)} in Pyodide 0.26.4 · GeoValidate ${esc(r.version)}</p><p>Basemap © OpenStreetMap contributors, OpenFreeMap.</p>
       <p>${LIMITS.map(esc).join(' ')}</p>`;
     await new Promise(res => { const im = $('report').querySelector('img'); im.complete ? res() : (im.onload = res); });

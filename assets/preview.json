@@ -1,0 +1,10 @@
+{
+ "label": "Mau Forest, Kenya (sample_mau_forest.csv)",
+ "version": "1.2.0",
+ "rows": 5000,
+ "random": 0.9324,
+ "spatial": 0.8884,
+ "block_km": 10,
+ "k": 5,
+ "seed": 42
+}

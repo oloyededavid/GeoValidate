@@ -24,7 +24,7 @@ from sklearn.model_selection import StratifiedKFold, KFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 MAX_ROWS = 50_000
 COORD_NAMES = {"x", "y", "lon", "lng", "long", "longitude", "lat", "latitude", "easting", "northing", "row", "col", "column"}
 

@@ -1,5 +1,22 @@
 # GeoValidate: interface notes
 
+## Version 1.2.0: interface rebuilt as a guided product (27 November 2026)
+
+Rebuilt to the same pattern as AgroSignal and FloodScope 1.2.0. The Python engine (`py/geovalidate.py`) is unchanged apart from its version number.
+
+| Before | Now |
+|---|---|
+| Accordion steps, an intro block, four figure boxes, a Reading section and three tabs | An opening screen (headline, a file drop zone, the Mau Forest example, a card showing a real result), a three-screen tour on first use, and a stepper: Data, Setup, Result |
+| Columns, block size and model settings across two steps | One Setup step: class and coordinate columns, the predictor list folded with a count, the data check, and the block size with one line on how to choose it; folds, buffer, trees, seed and class weights under Advanced settings |
+| A progress log | Stages and a bar while comparing; the engine's download progress shows under the drop zone |
+| Result spread over figures, Reading and tabs | The gap as the headline, one sentence, three figures, the small-sample or fold-spread caution when it applies, the fold chart, the block-size sweep on demand, the classes most affected, then all metrics, limits and run details folded away |
+| Map view radio chips | One "Map shows" select with the legend in a map card |
+| A result kept but marked out of date when settings changed | The result is cleared when the settings change, so a shown result always matches the settings |
+
+The landing card is built from a real run's Configuration export and a screenshot of the page's map after that run (`tools/make_preview.py`), so no figure on it is typed by hand.
+
+## Version 1.1.0
+
 Version 1.1.0, November 2026. What changed in the interface, why, and what is still open. The analysis engine (`py/geovalidate.py`) is unchanged apart from its version number; the sample still gives random 0.9324 and spatial 0.8884 (`tests/check_expected.py`).
 
 | Change | Why (audit finding) |

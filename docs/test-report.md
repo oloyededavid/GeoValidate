@@ -51,3 +51,16 @@ Run on 23 November 2026. Evidence files are in `docs/validation/`.
 Changes in 1.1.1: the small-sample warning; the Reading says when the gap is smaller than the fold-to-fold spread; the per-class sentence says it comes from one seed and one split instead of "least likely to transfer"; the result heading states the finding, with the file name below it; the three example buttons use one wording. The engine is unchanged apart from its version number.
 
 Phone map overlays (after 1.1.1, same version): at 860 px and below the scale bar sits bottom-left above the Legend chip, the map credits start closed behind the i button, and layer chips stay in one scrolling row. Checked at 390 px after an example run: no overlapping overlays; axe 0 violations.
+
+## Version 1.2.0 (interface rebuilt), 27 November 2026
+
+| # | Test | Expected | Result | Status |
+|---|---|---|---|---|
+| 27 | Version check | page and engine agree | 1.2.0 | Pass |
+| 28 | `tests/browser_e2e.cjs`, 1440 × 900: Mau Forest example from the opening screen | random 0.9324, spatial 0.8884 as in `tests/check_expected.py` | 93.2% and 88.8%, gap −4.4 points; engine start and run in 32 s; the fold-spread caution shown (±7.2 points) | Pass |
+| 29 | Same run: four map views, block-size sweep, five file exports | views drawn, sweep chart, files written | sweep 91.4% at 1 km to 87.7% at 20 km; evaluation CSV, folds CSV, GeoJSON, configuration JSON and charts PNG written | Pass |
+| 30 | Block size changed after a result | result cleared, new folds shown | Result step disabled; "25 blocks hold points … fold 5 lacks Water and wetland" | Pass |
+| 31 | 390 px phone: sample file chosen through the file input, tour, setup, run | tour on first entry, data check passes, result, no horizontal scroll | as expected; 93.2% and 88.8%; 0 px overflow | Pass |
+| 32 | Console errors | none from the page | none apart from the two landing-card files, which did not exist until this run produced them (`tools/make_preview.py`) | Pass |
+
+Not checked in 1.2.0: the printed report, screen readers, real touch devices, and a GeoJSON or projected-coordinate file in the browser (the engine's own tests cover them).

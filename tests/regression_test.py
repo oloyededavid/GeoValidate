@@ -60,4 +60,14 @@ one = gv.inspect(df.assign(lon=df["lon"].where(df.index != 0)), "y", "lon", "lat
 check("one missing coordinate reads as one row, not one rows", any(p.startswith("1 row without") for p in one["problems"]), "; ".join(one["problems"])[:120])
 bad = msg('a,b\n1,"open quote\n2,3\n', "csv")
 check("a CSV with an unclosed quote gets a plain message, not parser text", "could not be read as CSV" in bad and "tokenizing" not in bad, bad)
+# unknown EPSG codes are rejected with a message before PROJ parses them (in Pyodide an unknown code aborted the engine)
+for code in ["EPSG:12", "EPSG:99999", "EPSG:4269"]:
+    try: gv.check_crs(code); err = ""
+    except ValueError as e: err = str(e)
+    check(f"{code} is rejected as not a projected EPSG code", "not a projected coordinate system" in err, err[:80])
+try: gv.check_crs("EPSG:32737"); ok32737 = True
+except Exception: ok32737 = False
+check("EPSG:32737 (UTM 37S) is accepted", ok32737)
+mp = gv.inspect(df.assign(a=df["a"].where(df.index != 1)), "y", "lon", "lat", ["a"], "EPSG:4326")
+check("a missing predictor value is reported", any("missing predictor value" in p for p in mp["problems"]), "; ".join(mp["problems"])[:120])
 print(f"{fails} FAILED" if fails else "ALL PASSED"); sys.exit(1 if fails else 0)

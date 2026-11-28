@@ -24,7 +24,7 @@ from sklearn.model_selection import StratifiedKFold, KFold, train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 MAX_ROWS = 50_000
 COORD_NAMES = {"x", "y", "lon", "lng", "long", "longitude", "lat", "latitude", "easting", "northing", "row", "col", "column"}
 
@@ -109,6 +109,7 @@ def guess_columns(df: pd.DataFrame) -> dict:
 # ---------------------------------------------------------------- inspection
 def inspect(df: pd.DataFrame, target: str, x: str, y: str, features: list[str], crs: str) -> dict:
     """Data-quality report. Nothing is modified; problems are described for the user to decide."""
+    check_crs(crs)
     for c in [target, x, y, *features]:
         if c not in df.columns:
             raise ValueError(f"Column not found: {c}")
@@ -164,6 +165,9 @@ def inspect(df: pd.DataFrame, target: str, x: str, y: str, features: list[str], 
     if dup_xy: problems.append(f"{rows_(dup_xy)} {'shares' if dup_xy == 1 else 'share'} a location with an earlier row")
     if imbalance and imbalance > 10: problems.append(f"the largest class is {imbalance:.0f} times the smallest; macro averages weigh classes equally")
     if not features: problems.append("no predictors selected")
+    miss_pred = int(df[features].isna().any(axis=1).sum()) if features else 0
+    if miss_pred: problems.append(f"{rows_(miss_pred)} {'has' if miss_pred == 1 else 'have'} a missing predictor value; it is filled "
+                                  "with the median (numeric) or the most frequent value (categorical) of each training fold")
     if crs == "EPSG:4326":
         ok = (xs.abs() <= 180) & (ys.abs() <= 90) & xs.notna() & ys.notna()
         if ok.sum() > 1:
@@ -216,10 +220,30 @@ def prepare(df, target, x, y, features, crs) -> Prepared:
     return Prepared(X, yv, xy, keep, numeric, categorical, sorted(np.unique(yv).tolist()), proj)
 
 
+_PROJECTED_EPSG = None
+
+
+def _projected_epsg() -> set:
+    """EPSG codes of projected CRSs in PROJ's database, read once. Codes are looked up here before PROJ parses them:
+    in Pyodide an unknown code can abort the whole Python runtime instead of raising an exception."""
+    global _PROJECTED_EPSG
+    if _PROJECTED_EPSG is None:
+        from pyproj.database import query_crs_info
+        from pyproj.enums import PJType
+        _PROJECTED_EPSG = {i.code for i in query_crs_info(auth_name="EPSG", pj_types=PJType.PROJECTED_CRS)}
+    return _PROJECTED_EPSG
+
+
 def check_crs(crs: str) -> None:
     """Coordinates must be longitude/latitude (EPSG:4326) or a projected CRS in metres."""
     if crs == "EPSG:4326":
         return
+    m = re.fullmatch(r"EPSG:(\d{1,6})", str(crs))
+    if not m:
+        raise ValueError("Enter the EPSG code of the projected coordinates as a number, for example 32737")
+    if m.group(1) not in _projected_epsg():
+        raise ValueError(f"EPSG:{m.group(1)} is not a projected coordinate system in the EPSG database; check the code "
+                         "(for example 32737 is UTM zone 37 South)")
     from pyproj import CRS
     c = CRS.from_user_input(crs)
     if not c.is_projected:

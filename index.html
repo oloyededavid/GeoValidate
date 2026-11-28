@@ -25,7 +25,8 @@
     <button class="link" id="home" type="button" hidden>New analysis</button>
     <button class="link" id="how-open" type="button" aria-haspopup="dialog">How it works</button>
     <button class="link" id="about-open" type="button" aria-haspopup="dialog">Method</button>
-    <details class="menu"><summary class="link">More tools</summary><div class="menu-list">
+    <details class="menu"><summary class="link">More</summary><div class="menu-list">
+      <button class="menu-method" type="button" data-method>Method<span>How it works, data and limits</span></button>
       <a href="https://oloyededavid.github.io/geospatial-rs-portfolio/twin/">City Twins<span>A city's climate twin in another country</span></a>
       <a href="https://oloyededavid.github.io/FloodScope/">FloodScope<span>Flood extent from radar</span></a>
       <a href="https://oloyededavid.github.io/AgroSignal/">AgroSignal<span>Was the season greener than usual?</span></a>
@@ -56,6 +57,7 @@
 </section>
 
 <main class="app" id="app">
+  <h1 class="sr-only">GeoValidate</h1>
   <aside class="panel" aria-label="Analysis">
     <ol class="stepper" id="stepper">
       <li data-s="data"><button type="button"><i>1</i>Data</button></li>
@@ -156,7 +158,7 @@
   </aside>
 
   <div class="mapwrap">
-    <div id="map" role="region" aria-label="Map of the points and folds"></div>
+    <div id="map" aria-label="Map of the points and folds"></div>
     <div class="map-note" id="mapnote" hidden>The basemap could not load. The analysis still works.</div>
     <div class="layer-card" id="layer-card" hidden>
       <label>Map shows<select id="view"><option value="folds">Spatial folds</option><option value="random">Random folds</option><option value="class">Classes</option><option value="errors">Errors under spatial folds</option></select></label>
@@ -199,7 +201,7 @@
       <tr><td>Random k-fold</td><td>Points split into k folds stratified by class.</td></tr>
       <tr><td>Spatial block k-fold</td><td>A grid of square blocks; whole blocks go to folds, largest first to the fold with the fewest points, after shuffling with the seed. A block's points are never split between training and test.</td></tr>
       <tr><td>Model</td><td>Per fold, a fresh pipeline: median imputation of numeric predictors, most-frequent imputation and one-hot encoding of categorical ones, then a Random Forest, all fitted on that fold's training rows only. Both designs use the same pipeline, settings and seed.</td></tr>
-      <tr><td>Distances</td><td>Lon/lat are converted to metres with a map projection centred on the data (azimuthal equidistant, which keeps distances from the centre true) (circular mean of longitude, so data across the 180° meridian work), so block sizes and buffers are in metres. The median distance from test points to the nearest training point is reported for each design.</td></tr>
+      <tr><td>Distances</td><td>Lon/lat are converted to metres with a map projection centred on the data (azimuthal equidistant, which keeps distances from the centre true, centred on the circular mean of longitude so data across the 180° meridian work), so block sizes and buffers are in metres. The median distance from test points to the nearest training point is reported for each design.</td></tr>
       <tr><td>Metrics</td><td>Overall accuracy, Cohen's kappa (agreement beyond what chance would give), per-class precision, recall and F1 with macro and weighted averages, over all out-of-fold predictions. Fold spread is the SD of fold accuracy.</td></tr>
       <tr><td>Buffer</td><td>Optionally removes training points within a distance of any test point in each fold.</td></tr>
       <tr><td>Checks</td><td>Missing or out-of-range coordinates and targets, duplicates, class imbalance, constant or identifier-like columns, coordinates used as predictors, predictors whose values each map to one class, and data spread so widely that block sizes become approximate. Problems are reported; data are not changed silently.</td></tr>

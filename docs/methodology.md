@@ -1,6 +1,6 @@
 # GeoValidate methodology
 
-Version 1.0.0. All computation is in `py/geovalidate.py`. In the browser it runs inside Pyodide 0.26.4 with scikit-learn 1.4.2; in tests it runs in CPython. Function names below refer to that file.
+Version 1.2.1 (the method is unchanged since 1.0.0; 1.2.1 rejects unknown EPSG codes before PROJ reads them and reports missing predictor values). All computation is in `py/geovalidate.py`. In the browser it runs inside Pyodide 0.26.4 with scikit-learn 1.4.2; in tests it runs in CPython. Function names below refer to that file.
 
 ## 1. Question
 Does a classifier trained on point data keep its accuracy at places that are geographically separate from its training points? GeoValidate answers this by evaluating the same model under two designs:

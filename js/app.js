@@ -41,6 +41,7 @@ function show(v) {
   if (v === 'result' && S.result) requestAnimationFrame(() => { drawFolds(S.result); drawSweep(); });
 }
 function syncStepper() {
+  $('home').disabled = !!(S.running);   // no leaving mid-run from the top bar
   const cur = ORDER.indexOf(STEP_OF[S.view]);
   const can = { data: !S.running, setup: !S.running && !!S.meta, result: !S.running && !!S.result };
   document.querySelectorAll('#stepper li').forEach(li => {
@@ -66,7 +67,7 @@ const TOUR = [
   { h: 'Check and set the blocks', t: 'GeoValidate guesses the columns and checks the data. Pick the block size: whole blocks of that size are held out for testing.',
     art: '<div class="mk"><div class="mk-row"><div class="mk-field sel">class<span>▾</span></div><div class="mk-field sel">lon<span>▾</span></div><div class="mk-field sel">lat<span>▾</span></div></div><div class="mk-field">Block size: 10 km</div></div>' },
   { h: 'Compare and export', t: 'See random against spatial accuracy, fold by fold and class by class, then export the evaluation, folds and settings.',
-    art: '<div class="mk"><div class="mk-verdict">Spatial blocks score 4.4 points lower</div><div class="mk-chips"><span>Report</span><span>Evaluation CSV</span><span>Fold map</span><span>Config</span></div></div>' },
+    art: '<div class="mk"><div class="mk-verdict">Random against spatial accuracy</div><div class="mk-chips"><span>Report</span><span>Evaluation CSV</span><span>Fold map</span><span>Config</span></div></div>' },
 ];
 let tourAt = 0;
 function renderTour() {
@@ -137,7 +138,8 @@ async function readFile(f) {
   // trivial problems are reported at once, without starting the 36 MB engine
   if (!text.trim()) return info(`“${f.name}” is empty.`, true);
   if (kind === 'csv' && text.trim().split(/\r?\n/).length < 2) return info(`“${f.name}” has a header row but no data rows.`, true);
-  if (await load(text, f.name, kind)) show('setup');
+  await load(text, f.name, kind);
+  if (S.meta && S.text === text) show('setup');   // loaded: Setup shows what needs attention, if anything
 }
 async function loadSample() {
   try {
@@ -172,6 +174,7 @@ async function load(text, name, kind) {
 function fillColumns(meta) {
   const opts = (sel, pick) => { sel.innerHTML = meta.columns.map(c => `<option${c === pick ? ' selected' : ''}>${esc(c)}</option>`).join(''); };
   opts($('c-target'), meta.guess.target); opts($('c-x'), meta.guess.x); opts($('c-y'), meta.guess.y);
+  if (!meta.guess.target) { $('c-target').insertAdjacentHTML('afterbegin', '<option value="" selected>Choose the class column</option>'); }
   $('feats').innerHTML = ''; renderFeats(); $('quality').innerHTML = '';
   return checkData();
 }
@@ -193,6 +196,7 @@ let checkSeq = 0, previewSeq = 0;
 async function checkData() {
   if (!S.meta) return;
   const mine = ++checkSeq, c = cfg();
+  if (!c.target) { $('quality').innerHTML = '<li class="warn">Choose the column that holds the class labels.</li>'; S.previewOk = false; syncStepper(); return; }
   if (c.crs === 'EPSG:') { $('quality').innerHTML = '<li class="warn">Enter the EPSG code of the projected coordinates.</li>'; S.previewOk = false; syncStepper(); return; }
   try {
     const q = await ask('inspect', { cfg: c });
@@ -340,19 +344,28 @@ function render(r) {
     ['Predictors', `${r.config.features.length}: ${r.config.features.map(esc).join(', ')}`],
     ['Design', `${r.config.method === 'holdout' ? 'random 25% hold-out' : `${r.config.k} random folds`} against ${r.config.k} spatial folds of ${r.config.block_km} km blocks${r.config.buffer_km ? `, ${r.config.buffer_km} km buffer` : ''}; ${b.n_blocks} blocks`],
     ['Model', `Random Forest, ${r.config.model.n_estimators} trees, min. ${r.config.model.min_samples_leaf} per leaf, class weights ${r.config.model.class_weight || 'none'}, seed ${r.config.seed}`],
-    ['Projection', esc(r.projection || '')],
+    ['Projection', /^\+proj=aeqd/.test(r.projection || '') ? 'azimuthal equidistant, centred on the data (distances in metres)' : esc(r.projection || '')],
     ['Software', `GeoValidate ${esc(r.version)}, scikit-learn ${esc(r.sklearn)} in Pyodide 0.26.4; run in ${S.runSeconds.toFixed(1)} s`],
   ];
   $('r-run').innerHTML = `<table class="kv">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
   $('c-sweep').hidden = true; $('sweep-reading').textContent = 'Rerun the spatial design with 1 to 20 km blocks to see how the score changes.'; $('sweep').textContent = 'Run the block-size sweep'; $('sweep').disabled = false;
 }
+// white or ink text on a tinted cell, whichever has the higher contrast (WCAG relative luminance)
+const lum = (rgb, a) => { const m = rgb.map(c => (a * c + (1 - a) * 255) / 255).map(c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4); return 0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]; };
+// between about 0.183 and 0.217 relative luminance neither white nor ink text reaches 4.5:1, so a tint there is darkened just past it
+function cellAlpha(rgb, a) { while (a > 0 && a < 1 && lum(rgb, a) > 0.183 && lum(rgb, a) < 0.217) a = Math.min(1, a + 0.02); return a; }
+function textOn(rgb, a) {
+  const L = lum(rgb, a), ink = 0.0094;   // ink #15171c
+  return (1.05 / (L + 0.05)) >= ((L + 0.05) / (ink + 0.05)) ? '#fff' : '#15171c';
+}
 function cmTable(cm, labels) {
   const max = Math.max(...cm.flat(), 1), short = s => s.length > 14 ? s.slice(0, 13) + '…' : s;
-  return `<table class="cm" aria-label="Confusion matrix, rows are the labels, columns the predictions"><tr><th></th><th colspan="${labels.length}" class="axis">predicted</th></tr>
+  return `<table class="cm" aria-label="Confusion matrix, rows are the labels, columns the predictions"><tr><th><span class="sr-only">Label</span></th><th colspan="${labels.length}" class="axis">predicted</th></tr>
     ${cm.map((row, i) => `<tr><th class="rowh" title="${esc(labels[i])}">${esc(short(labels[i]))}</th>${row.map((v, j) => {
-      const t = v / max, bg = i === j ? `rgba(43,85,199,${0.1 + 0.75 * t})` : v ? `rgba(180,35,24,${0.1 + 0.7 * t})` : '#f4f5f7';
-      return `<td style="background:${bg};color:${t > 0.55 ? '#fff' : '#15171c'}" title="${esc(labels[i])} predicted as ${esc(labels[j])}: ${v}">${v}</td>`; }).join('')}</tr>`).join('')}
-    <tr><th></th>${labels.map(l => `<th title="${esc(l)}">${esc(l.slice(0, 3))}</th>`).join('')}</tr></table>`;
+      const t = v / max, rgb = i === j ? [31, 68, 168] : [163, 32, 32], a = cellAlpha(rgb, i === j ? 0.1 + 0.85 * t : v ? 0.1 + 0.8 * t : 0);
+      const bg = a ? `rgba(${rgb},${a})` : '#f4f5f7', fg = textOn(rgb, a);
+      return `<td style="background:${bg};color:${fg}" title="${esc(labels[i])} predicted as ${esc(labels[j])}: ${v}">${v}</td>`; }).join('')}</tr>`).join('')}
+    <tr><th><span class="sr-only">Predicted class</span></th>${labels.map(l => `<th title="${esc(l)}">${esc(l.slice(0, 3))}</th>`).join('')}</tr></table>`;
 }
 function perClass(m, labels) {
   return `<table class="data-table"><thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>n</th></tr></thead><tbody>${
@@ -431,7 +444,7 @@ const round6 = v => typeof v === 'number' ? Math.round(v * 1e6) / 1e6 : v;
 // text that starts with = + - @ is prefixed with ' so spreadsheets do not run it as a formula
 const csvCell = v => { let s = v == null ? '' : String(v); if (typeof v === 'string' && /^[=+\-@]/.test(s)) s = "'" + s; return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 const csv = rows => rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
-function save(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
+function save(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.setAttribute('aria-label', name); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }
 $('export-open').addEventListener('click', () => { $('x-note').textContent = ''; $('export').showModal(); });
 document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('click', async () => {
   const r = S.result; if (!r) return;
@@ -484,6 +497,8 @@ document.querySelectorAll('[data-export]').forEach(b => b.addEventListener('clic
 
 // ---------------------------------------------------------------- dialogs, landing preview, start
 $('about-open').addEventListener('click', () => $('about').showModal());
+document.querySelectorAll('[data-method]').forEach(b => b.addEventListener('click', () => { document.querySelector('.menu').open = false; $('about').showModal(); }));
+$('tour').addEventListener('close', () => { const h = document.querySelector(`[data-view="${S.view}"] h2`); if (h && $('welcome').hidden) { h.tabIndex = -1; h.focus(); } });
 document.querySelectorAll('dialog').forEach(d => {
   const x = d.querySelector('[data-close]'); if (x) x.addEventListener('click', () => d.close());
   d.addEventListener('click', e => { if (e.target === d) d.close(); });

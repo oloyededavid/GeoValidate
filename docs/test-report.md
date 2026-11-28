@@ -64,3 +64,14 @@ Phone map overlays (after 1.1.1, same version): at 860 px and below the scale ba
 | 32 | Console errors | none from the page | none apart from the two landing-card files, which did not exist until this run produced them (`tools/make_preview.py`) | Pass |
 
 Not checked in 1.2.0: the printed report, screen readers, real touch devices, and a GeoJSON or projected-coordinate file in the browser (the engine's own tests cover them).
+
+## Version 1.2.1 (after an independent audit), 28 November 2026
+
+| # | Check | Expected | Result | Status |
+|---|---|---|---|---|
+| 33 | `tests/regression_test.py` with new cases: EPSG:12, EPSG:99999 and EPSG:4269 rejected, EPSG:32737 accepted, a missing predictor value reported | all pass | all pass (local scikit-learn) | Pass |
+| 34 | Browser: projected CSV (EPSG:32737), entering 12, then 99999, then 32737 | a message for each bad code; the engine keeps working; the run completes | messages shown, Run disabled; with 32737 the run completed (400 points) | Pass |
+| 35 | Browser: a CSV whose class column cannot be guessed | no column chosen silently; Run disabled | "Choose the column that holds the class labels"; Run disabled | Pass |
+| 36 | axe on the result with All metrics open | no violations | no colour-contrast or other violations after the fix | Pass |
+
+The audit found that an unknown EPSG code could abort the Python engine in the browser, after which nothing worked until a reload. `check_crs` now looks the code up in PROJ's own list of projected EPSG codes before PROJ parses it, and the data check calls it too. Also fixed: missing predictor values are now reported (they are filled per training fold); a loaded file always opens Setup, where any problem is shown; the class column is not guessed when no name matches; confusion-matrix text keeps 4.5:1 contrast; labelled corner cells; a page h1 and one map region for axe; How it works and Method reachable on phones; New analysis disabled during a run; a compact layer legend on phones; the projection shown in plain words; and the docs.
